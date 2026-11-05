@@ -1,0 +1,68 @@
+# .gitignore for Entry-Hub GitHub release
+
+# 환경 변수 (절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+apps/**/.env
+apps/**/.env.local
+
+# 빌드 결과물
+dist/
+build/
+.next/
+*.zip
+
+# 의존성
+node_modules/
+.pnp
+.pnp.js
+
+# 운영체제 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 에디터 설정
+.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 로그
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# 테스트 커버리지
+coverage/
+
+# 타입스크립트 빌드 캐시
+*.tsbuildinfo
+
+# 터보레포 캐시
+.turbo/
+
+# Supabase 로컬 개발 데이터
+supabase/.branches/
+supabase/.temp/
+
+# Next.js 캐시
+apps/web/.next/
+apps/web/node_modules/
+
+# 에이전트 내부 워크플로우 (공개 대상 아님)
+.agents/
+
+# 개인 스크래치 파일
+scratch_*.py
+*.pptx
+
+# 내부 문서
+block-chain.md
+block-color.md
+entry-block.md
+vercel.json

@@ -1,0 +1,71 @@
+export const colors = {
+  primary: '#171717',
+  onPrimary: '#ffffff',
+  ink: '#171717',
+  body: '#4d4d4d',
+  mute: '#888888',
+  hairline: '#ebebeb',
+  hairlineStrong: '#a1a1a1',
+  canvas: '#ffffff',
+  canvasSoft: '#fafafa',
+  canvasSoft2: '#f5f5f5',
+  link: '#0070f3',
+  linkDeep: '#0761d1',
+  success: '#0070f3',
+  error: '#ee0000',
+  errorSoft: '#f7d4d6',
+  errorDeep: '#c50000',
+  warning: '#f5a623',
+  warningSoft: '#ffefcf',
+  warningDeep: '#ab570a',
+  violet: '#7928ca',
+  violetSoft: '#d8ccf1',
+  violetDeep: '#4c2889',
+  cyan: '#50e3c2',
+  cyanSoft: '#aaffec',
+  cyanDeep: '#29bc9b',
+  highlightPink: '#ff0080',
+  gradientDevelop: 'linear-gradient(135deg, #007cf0 0%, #00dfd8 100%)',
+  gradientPreview: 'linear-gradient(135deg, #7928ca 0%, #ff0080 100%)',
+  gradientShip: 'linear-gradient(135deg, #ff4d4d 0%, #f9cb28 100%)',
+} as const;
+
+export const darkColors = {
+  primary: '#ffffff',
+  onPrimary: '#000000',
+  ink: '#ededed',
+  body: '#a1a1a1',
+  mute: '#707070',
+  hairline: '#262626',
+  hairlineStrong: '#404040',
+  canvas: '#0a0a0a',
+  canvasSoft: '#121212',
+  canvasSoft2: '#1a1a1a',
+  link: '#3291ff',
+  linkDeep: '#0070f3',
+  success: '#3291ff',
+  error: '#ff5555',
+  errorSoft: '#3d1215',
+  errorDeep: '#ff3333',
+  warning: '#f5a623',
+  warningSoft: '#382500',
+  warningDeep: '#ab570a',
+  violet: '#a35cf0',
+  violetSoft: '#291b40',
+  violetDeep: '#c084fc',
+  cyan: '#50e3c2',
+  cyanSoft: '#0d3830',
+  cyanDeep: '#29bc9b',
+  highlightPink: '#f81ce5',
+  gradientDevelop: 'linear-gradient(135deg, #007cf0 0%, #00dfd8 100%)',
+  gradientPreview: 'linear-gradient(135deg, #7928ca 0%, #ff0080 100%)',
+  gradientShip: 'linear-gradient(135deg, #ff4d4d 0%, #f9cb28 100%)',
+} as const;
+
+export type ThemeMode = 'light' | 'dark';
+export type ThemeColors = Record<keyof typeof colors, string>;
+
+export function getThemeColors(mode: ThemeMode = 'light'): ThemeColors {
+  return mode === 'dark' ? darkColors : colors;
+}
+

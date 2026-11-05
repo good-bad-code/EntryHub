@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Entry-Hub",
+  "version": "1.1.2",
+  "description": "엔트리 작품 수정 페이지에 통합 에셋 보관함 및 주입 기능 제공",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Entry-Hub 에셋 플랫폼"
+  },
+  "host_permissions": [
+    "https://playentry.org/*",
+    "https://entry-hub-site.vercel.app/*",
+    "http://localhost:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://playentry.org/*",
+        "https://entry-hub-site.vercel.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://playentry.org/ws*"
+      ],
+      "js": [
+        "dist/entry-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/entry-bridge.js",
+        "icons/*"
+      ],
+      "matches": [
+        "https://playentry.org/*"
+      ]
+    }
+  ]
+}

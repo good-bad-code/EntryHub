@@ -1,0 +1,509 @@
+import blockData from '../data/entryBlockData.json';
+
+export interface BlockRenderInfo {
+  category: string;
+  categoryName: string;
+  skeleton: string;
+  color: string;
+  outerLine: string;
+  isEvent: boolean;
+  isLoop: boolean;
+  isField: boolean;
+  isBoolean: boolean;
+  isFunction: boolean;
+}
+
+// 15종 공식 카테고리 영문-한글 매핑
+export const ENTRY_CATEGORY_NAMES: Record<string, string> = {
+  start: '시작',
+  flow: '흐름',
+  moving: '움직임',
+  looks: '생김새',
+  brush: '붓',
+  text: '글상자',
+  sound: '소리',
+  judgement: '판단',
+  calc: '계산',
+  variable: '자료',
+  func: '함수',
+  analysis: '데이터 분석',
+  ai_utilize: '인공지능',
+  expansion: '확장',
+  arduino: '하드웨어',
+};
+
+// 카테고리별 공식 색상 (EntryStatic.colorSet.block 기준)
+export const ENTRY_CATEGORY_COLORS: Record<string, { bg: string; border: string }> = {
+  start: { bg: '#00b400', border: '#009400' },
+  flow: { bg: '#19baea', border: '#1498c0' },
+  moving: { bg: '#ad3efb', border: '#8b19db' },
+  looks: { bg: '#ff3a61', border: '#c72042' },
+  brush: { bg: '#ff9b00', border: '#fc6500' },
+  text: { bg: '#e43500', border: '#ad2800' },
+  sound: { bg: '#67b100', border: '#508a00' },
+  judgement: { bg: '#4562f5', border: '#1b3ad8' },
+  calc: { bg: '#f4af18', border: '#ff7f00' },
+  variable: { bg: '#dd47d8', border: '#b819b3' },
+  func: { bg: '#de5c04', border: '#a14100' },
+  analysis: { bg: '#25aeff', border: '#1592ff' },
+  ai_utilize: { bg: '#8222ff', border: '#670bdd' },
+  expansion: { bg: '#ef6d6d', border: '#c63f3f' },
+  arduino: { bg: '#00b6b1', border: '#008380' },
+};
+
+export const categoryMap = blockData.categoryMap as Record<string, string>;
+export const skeletonMap = blockData.skeletonMap as Record<string, string>;
+export const templates = blockData.templates as Record<string, string>;
+export const dropdownMap = blockData.dropdownMap as Record<string, string>;
+
+/**
+ * 블록의 타입(type)으로부터 정확한 카테고리, 색상, 스켈레톤(외형 모양) 메타데이터를 계산합니다.
+ */
+export function getEntryBlockInfo(type: string): BlockRenderInfo {
+  const t = (type || '').trim();
+  const lower = t.toLowerCase();
+
+  // 1. 함수 블록 여부 확인
+  const isFunction =
+    lower.includes('func') ||
+    lower.includes('def_func') ||
+    lower.includes('custom') ||
+    lower.startsWith('func_') ||
+    categoryMap[t] === 'func';
+
+  // 2. 카테고리 결정
+  let categoryKey = categoryMap[t];
+
+  if (!categoryKey) {
+    if (isFunction) {
+      categoryKey = 'func';
+    } else if (
+      lower.startsWith('calc_') ||
+      lower.includes('calc') ||
+      lower.includes('random') ||
+      lower.includes('coordinate_') ||
+      lower.includes('math')
+    ) {
+      categoryKey = 'calc';
+    } else if (
+      lower.startsWith('boolean_') ||
+      lower.startsWith('is_') ||
+      lower.includes('boolean') ||
+      lower.includes('reach') ||
+      lower.includes('touch') ||
+      lower.includes('judgement')
+    ) {
+      categoryKey = 'judgement';
+    } else if (
+      lower.includes('draw') ||
+      lower.includes('brush') ||
+      lower.includes('pen') ||
+      lower.includes('stamp') ||
+      lower.includes('erase') ||
+      lower.includes('thickness')
+    ) {
+      categoryKey = 'brush';
+    } else if (lower.includes('text') || lower.includes('font') || lower.includes('textbox')) {
+      categoryKey = 'text';
+    } else if (lower.includes('sound') || lower.includes('audio') || lower.includes('volume') || lower.includes('pitch')) {
+      categoryKey = 'sound';
+    } else if (lower.includes('variable') || lower.includes('list')) {
+      categoryKey = 'variable';
+    } else if (lower.includes('repeat') || lower.includes('if') || lower.includes('wait') || lower.includes('stop') || lower.includes('flow')) {
+      categoryKey = 'flow';
+    } else if (lower.includes('move') || lower.includes('rotate') || lower.includes('direction') || lower.includes('locate') || lower.includes('motion')) {
+      categoryKey = 'moving';
+    } else if (lower.includes('dialog') || lower.includes('show') || lower.includes('hide') || lower.includes('looks') || lower.includes('effect')) {
+      categoryKey = 'looks';
+    } else if (lower.startsWith('when') || lower.includes('entry_event') || lower === 'start') {
+      categoryKey = 'start';
+    } else if (lower.includes('ai_') || lower.includes('voice') || lower.includes('knn')) {
+      categoryKey = 'ai_utilize';
+    } else if (lower.includes('hardware') || lower.includes('arduino')) {
+      categoryKey = 'arduino';
+    } else {
+      categoryKey = 'flow';
+    }
+  }
+
+  const categoryName = ENTRY_CATEGORY_NAMES[categoryKey] || '블록';
+  const colorPair = ENTRY_CATEGORY_COLORS[categoryKey] || { bg: '#444444', border: '#333333' };
+
+  // 3. 스켈레톤(모양) 결정
+  let skeleton = skeletonMap[t];
+  if (!skeleton) {
+    if (lower.startsWith('when_') || lower.includes('clicked') || lower.includes('pressed') || categoryKey === 'start') {
+      skeleton = 'basic_event';
+    } else if (lower.includes('repeat') || lower.includes('if') || lower.includes('loop')) {
+      skeleton = 'basic_loop';
+    } else if (categoryKey === 'judgement' || lower.startsWith('boolean_') || lower.startsWith('is_') || lower.includes('boolean')) {
+      skeleton = 'basic_boolean_field';
+    } else if (categoryKey === 'calc' || lower.startsWith('calc_') || lower.includes('get_') || lower.includes('value')) {
+      skeleton = 'basic_string_field';
+    } else {
+      skeleton = 'basic';
+    }
+  }
+
+  const isEvent = skeleton === 'basic_event';
+  const isLoop = skeleton === 'basic_loop' || skeleton === 'basic_double_loop' || skeleton === 'basic_define';
+  const isBoolean = skeleton === 'basic_boolean_field';
+  const isField = skeleton === 'basic_string_field' || isBoolean;
+
+  return {
+    category: categoryKey,
+    categoryName,
+    skeleton,
+    color: colorPair.bg,
+    outerLine: colorPair.border,
+    isEvent,
+    isLoop,
+    isField,
+    isBoolean,
+    isFunction,
+  };
+}
+
+export interface ParsedTemplateSegment {
+  type: 'text' | 'param';
+  text?: string;
+  paramIndex?: number;
+  param?: any;
+}
+
+/**
+ * 엔트리 함수 블록의 정의로부터 사용자 함수 이름을 추출합니다.
+ */
+export function extractFunctionNameFromDef(funcDef: any): string {
+  if (!funcDef) return '';
+  if (typeof funcDef === 'string') return funcDef;
+  if (funcDef.name && funcDef.name !== '함수' && funcDef.name !== '함수 정의') return funcDef.name;
+  if (funcDef.title && funcDef.title !== '함수' && funcDef.title !== '함수 정의') return funcDef.title;
+
+  function findLabel(node: any): string | null {
+    if (!node) return null;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = findLabel(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof node === 'object') {
+      if (node.type === 'function_field_label' && node.params?.[0]) {
+        return String(node.params[0]);
+      }
+      if (node.params && Array.isArray(node.params)) {
+        const found = findLabel(node.params);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  // 1. content 필드 (함수 목록에서 저장된 Func 인스턴스)
+  let content = funcDef.content;
+  if (typeof content === 'string') {
+    try { content = JSON.parse(content); } catch { content = null; }
+  }
+  if (content) {
+    const label = findLabel(content);
+    if (label) return label;
+  }
+
+  // 2. def_functions 블록의 params 필드 직접 탐색
+  // 구조: params = [ [function_field_label, function_param_string, ...] ]
+  // 또는:  params = [ function_field_label, function_param_string, ... ]
+  if (funcDef.params) {
+    const label = findLabel(funcDef.params);
+    if (label) return label;
+  }
+
+  if (funcDef.name) return funcDef.name;
+  if (funcDef.title) return funcDef.title;
+  return '';
+}
+
+/**
+ * 템플릿과 블록 파라미터를 결합하여 구조화된 세그먼트 배열을 파싱합니다.
+ * pictures/sounds 이름 해석을 위한 선택적 컨텍스트를 받을 수 있습니다.
+ */
+export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pictures?: any[]; sounds?: any[] }): ParsedTemplateSegment[] {
+  if (!block || typeof block !== 'object') return [];
+  const type = block.type || block.name || '';
+  const params: any[] = block.params || [];
+
+  // get_pictures: picture ID -> 이름 텍스트로 변환하여 단일 텍스트 세그먼트 반환
+  if (type === 'get_pictures') {
+    const picId = params[0];
+    let label = picId ? String(picId) : '모양';
+    if (picId && ctx?.pictures) {
+      const pic = ctx.pictures.find((p: any) => (p.id || p.id_) === picId);
+      if (pic) label = pic.name || pic.name_ || label;
+    }
+    return [{ type: 'text', text: label }];
+  }
+
+  // get_sounds: sound ID -> 이름 텍스트로 변환
+  if (type === 'get_sounds') {
+    const sndId = params[0];
+    let label = sndId ? String(sndId) : '소리';
+    if (sndId && ctx?.sounds) {
+      const snd = ctx.sounds.find((s: any) => (s.id || s.id_) === sndId);
+      if (snd) label = snd.name || snd.name_ || label;
+    }
+    return [{ type: 'text', text: label }];
+  }
+
+  // 함수 정의 블록 (def_functions)
+  if (type === 'def_functions') {
+    const funcName = extractFunctionNameFromDef(block) || '함수 정의';
+    const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
+    // params 구조: [[label, param, param, ...]] 또는 [label, param, param, ...]
+    const rawParams = Array.isArray(params[0]) ? params[0] : params;
+    rawParams.forEach((subP: any, idx: number) => {
+      if (!subP?.type) return;
+      if (subP.type === 'function_field_label') return; // 라벨은 이미 funcName에 포함
+      // 파라미터 블록 (string, boolean, number 등)
+      segments.push({ type: 'param', paramIndex: idx, param: subP });
+    });
+    return segments;
+  }
+
+  // 함수 라벨 블록
+  if (type === 'function_field_label') {
+    const label = params.length > 0 ? String(params[0]) : '함수';
+    return [{ type: 'text', text: label }];
+  }
+
+  // 함수 매개변수 블록
+  if (type === 'function_field_string' || type === 'function_param_string') {
+    const label = params.length > 0 ? String(params[0]) : '문자/숫자';
+    return [{ type: 'param', paramIndex: 0, param: label }];
+  }
+  if (type === 'function_field_boolean' || type === 'function_param_boolean') {
+    const label = params.length > 0 ? String(params[0]) : '참/거짓';
+    return [{ type: 'param', paramIndex: 0, param: label }];
+  }
+
+  // 함수 호출 블록 (func_... 또는 type이 함수 id와 일치하는 경우)
+  if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
+    const funcId = type.startsWith('func_') ? type.slice(5) : type;
+    const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
+    const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
+
+    const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
+    params.forEach((param, idx) => {
+      if (param !== null && param !== undefined) {
+        segments.push({ type: 'param', paramIndex: idx, param });
+      }
+    });
+    return segments;
+  }
+
+  // number, text, string, angle 등의 기본 값 래퍼 블록
+  if (type === 'number' || type === 'text' || type === 'string' || type === 'angle') {
+    const val = params.length > 0 ? params[0] : '';
+    return [{ type: 'param', paramIndex: 0, param: val }];
+  }
+
+  const template = templates[type];
+
+  if (template) {
+    const segments: ParsedTemplateSegment[] = [];
+    const regex = /%([0-9]+)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(template)) !== null) {
+      if (match.index > lastIndex) {
+        segments.push({
+          type: 'text',
+          text: template.slice(lastIndex, match.index),
+        });
+      }
+      const idx = parseInt(match[1], 10) - 1;
+      segments.push({
+        type: 'param',
+        paramIndex: idx,
+        param: idx >= 0 && idx < params.length ? params[idx] : null,
+      });
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < template.length) {
+      segments.push({
+        type: 'text',
+        text: template.slice(lastIndex),
+      });
+    }
+
+    return segments;
+  }
+
+  // 템플릿이 없는 경우 기본 폴백 세그먼트
+  const cleanType = type
+    .replace(/^when_/, '')
+    .replace(/_basic$/, '')
+    .replace(/_/g, ' ');
+
+  const segments: ParsedTemplateSegment[] = [{ type: 'text', text: cleanType }];
+  params.forEach((param, idx) => {
+    if (param !== null && param !== undefined) {
+      segments.push({ type: 'param', paramIndex: idx, param });
+    }
+  });
+
+  return segments;
+}
+
+/**
+ * 파라미터 값(값, 드롭다운 키, 서브블록)을 사용자 친화적 문자열로 포맷팅합니다.
+ * pictures/sounds 이름 해석을 위한 선택적 컨텍스트를 받을 수 있습니다.
+ */
+export function formatParamValue(param: any, ctx?: { pictures?: any[]; sounds?: any[] }): string {
+  if (param === null || param === undefined) return '';
+
+  if (typeof param === 'string') {
+    return dropdownMap[param] || param;
+  }
+
+  if (typeof param === 'number' || typeof param === 'boolean') {
+    return String(param);
+  }
+
+  if (typeof param === 'object') {
+    // get_pictures 블록: 모양 ID -> 모양 이름 변환
+    if (param.type === 'get_pictures') {
+      const picId = param.params?.[0];
+      if (picId && ctx?.pictures) {
+        const pic = ctx.pictures.find((p: any) => (p.id || p.id_) === picId);
+        if (pic) return pic.name || pic.name_ || String(picId);
+      }
+      return picId ? String(picId) : '모양';
+    }
+
+    // get_sounds 블록: 소리 ID -> 소리 이름 변환
+    if (param.type === 'get_sounds') {
+      const sndId = param.params?.[0];
+      if (sndId && ctx?.sounds) {
+        const snd = ctx.sounds.find((s: any) => (s.id || s.id_) === sndId);
+        if (snd) return snd.name || snd.name_ || String(sndId);
+      }
+      return sndId ? String(sndId) : '소리';
+    }
+
+    // 함수 파라미터 블록: 이름 표시
+    if (param.type === 'function_field_string' || param.type === 'function_param_string') {
+      return param.params?.[0] ? String(param.params[0]) : '문자/숫자';
+    }
+    if (param.type === 'function_field_boolean' || param.type === 'function_param_boolean') {
+      return param.params?.[0] ? String(param.params[0]) : '참/거짓';
+    }
+
+    // 엔트리 블록 객체인 경우
+    if (param.type) {
+      return renderBlockTemplate(param, [], ctx);
+    }
+    // params[0] 등이 { type: 'number', params: ['10'] } 구조인 경우
+    if (param.params && Array.isArray(param.params)) {
+      return param.params.map((p: any) => formatParamValue(p, ctx)).join(' ');
+    }
+  }
+
+  return '';
+}
+
+/**
+ * 엔트리 공식 템플릿(%1, %2 치환)을 적용하여 완성된 블록 텍스트를 생성합니다.
+ * pictures/sounds 이름 해석을 위한 선택적 컨텍스트를 받을 수 있습니다.
+ */
+export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { pictures?: any[]; sounds?: any[] }): string {
+  if (!block || typeof block !== 'object') return '';
+  const type = block.type || block.name || '';
+  const params: any[] = block.params || [];
+
+  // get_pictures 블록: picture ID -> 이름 변환
+  if (type === 'get_pictures') {
+    const picId = params[0];
+    if (picId && ctx?.pictures) {
+      const pic = ctx.pictures.find((p: any) => (p.id || p.id_) === picId);
+      if (pic) return pic.name || pic.name_ || String(picId);
+    }
+    return picId ? String(picId) : '모양';
+  }
+
+  // get_sounds 블록: sound ID -> 이름 변환
+  if (type === 'get_sounds') {
+    const sndId = params[0];
+    if (sndId && ctx?.sounds) {
+      const snd = ctx.sounds.find((s: any) => (s.id || s.id_) === sndId);
+      if (snd) return snd.name || snd.name_ || String(sndId);
+    }
+    return sndId ? String(sndId) : '소리';
+  }
+
+  // 함수 정의 블록
+  if (type === 'def_functions') {
+    return extractFunctionNameFromDef(block) || '함수 정의';
+  }
+
+  // 함수 파라미터 블록 이름 표시
+  if (type === 'function_field_string' || type === 'function_param_string') {
+    return params[0] ? String(params[0]) : '문자/숫자';
+  }
+  if (type === 'function_field_boolean' || type === 'function_param_boolean') {
+    return params[0] ? String(params[0]) : '참/거짓';
+  }
+  if (type === 'function_field_label') {
+    return params[0] ? String(params[0]) : '';
+  }
+
+  // 함수 호출 블록
+  if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
+    const funcId = type.startsWith('func_') ? type.slice(5) : type;
+    const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
+    const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
+    const paramTexts = params
+      .map((p: any) => formatParamValue(p, ctx))
+      .filter(Boolean)
+      .join(' ');
+    return paramTexts ? `${funcName} (${paramTexts})` : funcName;
+  }
+
+  // number, text, string, angle 등 값 래퍼 블록
+  if (type === 'number' || type === 'text' || type === 'string' || type === 'angle') {
+    return params.length > 0 ? formatParamValue(params[0], ctx) : '';
+  }
+
+  const template = templates[type];
+
+  if (template) {
+    // %1, %2 등의 템플릿 플레이스홀더 치환
+    let result = template.replace(/%([0-9]+)/g, (_match: string, num: string) => {
+      const idx = parseInt(num, 10) - 1;
+      if (idx >= 0 && idx < params.length) {
+        return formatParamValue(params[idx], ctx);
+      }
+      return '';
+    });
+
+    // 불필요한 연속 공백 정리
+    result = result.replace(/\s+/g, ' ').trim();
+    if (result) return result;
+  }
+
+  // 템플릿이 없는 경우 기본 폴백: 영문 타입 읽기 쉽게 정돈 및 파라미터 나열
+  const cleanType = type
+    .replace(/^when_/, '')
+    .replace(/_basic$/, '')
+    .replace(/_/g, ' ');
+
+  const paramTexts = params
+    .map((p: any) => formatParamValue(p, ctx))
+    .filter(Boolean)
+    .join(' ');
+
+  return paramTexts ? `${cleanType} (${paramTexts})` : cleanType;
+}
+

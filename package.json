@@ -1,0 +1,28 @@
+{
+  "name": "entry-hub-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Entry-Hub: Platform for sharing & injecting Entry assets (Web & Chrome Extension)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:core": "npm run build --workspace=packages/core",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:ext": "npm run build --workspace=apps/extension",
+    "package:ext": "npm run build:ext && tar.exe -a -c -f entry-hub-extension-v1.0.0.zip -C apps/extension manifest.json dist icons",
+    "build": "npm run build:core && npm run build:web && npm run build:ext"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "next": "^14.2.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  }
+}
