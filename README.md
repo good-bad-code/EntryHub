@@ -52,8 +52,6 @@ Chrome Extension (Manifest V3)
 두 스크립트는 window.postMessage 브릿지로 통신
 ```
 
-자세한 아키텍처 및 구현 가이드는 [extension.md](../extension.md)를 참고하세요.
-
 ---
 
 ## 시작하기
@@ -124,26 +122,6 @@ entry-hub/
 ├── error.md                 # 버그 분석 및 해결 기록
 └── .env.example             # 환경 변수 예시
 ```
-
----
-
-## 핵심 기술 노트
-
-엔트리 블록 에셋을 올바르게 주입하기 위해 반드시 알아야 할 사항입니다.
-
-### toJSON(false) 를 사용해야 한다
-
-`Entry.EntryObject.prototype.toJSON(isClone)` 에서:
-- `isClone=true`: picture/sound ID가 모두 `Entry.generateHash()`로 새로 생성됨 → script 내 ID와 불일치 → 모양/소리 블록이 대상없음으로 표시
-- `isClone=false`: ID가 그대로 보존됨 → 정상 작동
-
-```ts
-// 올바른 방법
-const projectData = Entry.exportProject();  // 내부적으로 toJSON(false) 사용
-const obj = projectData.objects.find(o => o.id === targetId);
-```
-
-더 자세한 내용은 [error.md](../error.md)를 참고하세요.
 
 ---
 
