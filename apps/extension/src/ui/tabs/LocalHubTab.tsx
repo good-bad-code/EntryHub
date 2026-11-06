@@ -40,6 +40,7 @@ interface LocalHubTabProps {
   onQuickInject: (asset: ExtensionAssetItem) => void;
   onOpenLocalUpload: (targetFolderId: string | null) => void;
   activeColors: ThemeColors;
+  refreshTrigger?: number;
 }
 
 export function LocalHubTab({
@@ -47,6 +48,7 @@ export function LocalHubTab({
   onQuickInject,
   onOpenLocalUpload,
   activeColors,
+  refreshTrigger,
 }: LocalHubTabProps) {
   const [folders, setFolders] = useState<LocalFolderItem[]>([]);
   const [assets, setAssets] = useState<LocalAssetItem[]>([]);
@@ -122,6 +124,13 @@ export function LocalHubTab({
   useEffect(() => {
     refreshData();
   }, []);
+
+  // refreshTrigger가 올라가면 currentFolderId를 유지한 채로 데이터만 재로드
+  useEffect(() => {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      refreshData();
+    }
+  }, [refreshTrigger]);
 
   // 현재 폴더 경로 계산 (브레드크럼)
   const getBreadcrumbs = (): { id: string | null; name: string }[] => {

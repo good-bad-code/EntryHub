@@ -257,16 +257,27 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
 
   // 함수 정의 블록 (def_functions)
   if (type === 'def_functions') {
-    const funcName = extractFunctionNameFromDef(block) || '함수 정의';
-    const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
-    // params 구조: [[label, param, param, ...]] 또는 [label, param, param, ...]
-    const rawParams = Array.isArray(params[0]) ? params[0] : params;
+    // params 구조: [[label, param, ...]] 또는 [label, param, ...]
+    const rawParams: any[] = Array.isArray(params[0]) ? params[0] : params;
+    const segments: ParsedTemplateSegment[] = [];
     rawParams.forEach((subP: any, idx: number) => {
       if (!subP?.type) return;
-      if (subP.type === 'function_field_label') return; // 라벨은 이미 funcName에 포함
-      // 파라미터 블록 (string, boolean, number 등)
-      segments.push({ type: 'param', paramIndex: idx, param: subP });
+      if (subP.type === 'function_field_label') {
+        // 라벨 텍스트 그대로 출력
+        const label = subP.params?.[0] ? String(subP.params[0]) : '';
+        if (label) segments.push({ type: 'text', text: label });
+      } else if (subP.type === 'function_field_boolean' || subP.type === 'function_param_boolean') {
+        // 판단값 슬롯: _isBooleanParam 플래그
+        segments.push({ type: 'param', paramIndex: idx, param: { ...subP, _isBooleanParam: true } });
+      } else {
+        // 문자/숫자 슬롯
+        segments.push({ type: 'param', paramIndex: idx, param: subP });
+      }
     });
+    // rawParams가 비어있으면 fallback으로 이름만
+    if (segments.length === 0) {
+      segments.push({ type: 'text', text: extractFunctionNameFromDef(block) || '함수 정의' });
+    }
     return segments;
   }
 
@@ -290,13 +301,41 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
   if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
     const funcId = type.startsWith('func_') ? type.slice(5) : type;
     const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
-    const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
 
+    // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
+    if (found) {
+      const fieldBlocks = getFuncDefFieldBlocks(found);
+      if (fieldBlocks.length > 0) {
+        const segments: ParsedTemplateSegment[] = [];
+        let callParamIdx = 0;
+        for (const field of fieldBlocks) {
+          if (field.type === 'function_field_label') {
+            const label = field.params?.[0] ? String(field.params[0]) : '';
+            if (label) segments.push({ type: 'text', text: label });
+          } else {
+            // 파라미터 슬롯: 실제 호출 값으로 채움
+            const actualParam = callParamIdx < params.length ? params[callParamIdx] : null;
+            const isBoolean = field.type === 'function_field_boolean' || field.type === 'function_param_boolean';
+            segments.push({
+              type: 'param',
+              paramIndex: callParamIdx,
+              param: isBoolean && actualParam ? { ...actualParam, _isBooleanParam: true } : actualParam,
+            });
+            callParamIdx++;
+          }
+        }
+        return segments;
+      }
+    }
+
+    // 정의 없는 경우 폴백: 함수명 + 파라미터 나열
+    const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
     const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
     params.forEach((param, idx) => {
-      if (param !== null && param !== undefined) {
-        segments.push({ type: 'param', paramIndex: idx, param });
-      }
+      if (param === null || param === undefined) return;
+      const pType = param?.type || '';
+      const isBoolean = pType === 'function_field_boolean' || pType === 'function_param_boolean';
+      segments.push({ type: 'param', paramIndex: idx, param: isBoolean ? { ...param, _isBooleanParam: true } : param });
     });
     return segments;
   }
@@ -355,6 +394,106 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
   });
 
   return segments;
+}
+
+/**
+ * 함수 정의(def_functions) 블록에서 순서가 보존된 필드 블록 배열을 추출합니다.
+ * [function_field_label, function_param_string, function_field_label, ...] 형태로 반환합니다.
+ */
+/**
+ * 함수 정의(def_functions / function_create) 블록에서
+ * 순서가 보존된 필드 블록 배열을 추출합니다.
+ *
+ * 엔트리 함수 정의 내부는 링크드 리스트 구조입니다:
+ *   function_create
+ *     params[0]: function_field_label
+ *       params[0]: "라벨 텍스트"
+ *       params[1]: function_field_string  <-- 다음 블록
+ *         params[0]: stringParam_xxxx
+ *         params[1]: function_field_boolean  <-- 다음 블록
+ *           ...
+ */
+export function getFuncDefFieldBlocks(funcDef: any): any[] {
+  if (!funcDef) return [];
+
+  const FIELD_TYPES = new Set([
+    'function_field_label',
+    'function_field_string',
+    'function_field_boolean',
+    'function_param_string',
+    'function_param_boolean',
+  ]);
+
+  // 링크드 리스트를 따라 모든 필드 블록을 순서대로 수집
+  function traverseChain(startBlock: any): any[] {
+    const fields: any[] = [];
+    const visited = new Set<string>();
+    let current = startBlock;
+
+    while (current && typeof current === 'object' && current.type) {
+      if (current.id && visited.has(current.id)) break;
+      if (current.id) visited.add(current.id);
+
+      if (!FIELD_TYPES.has(current.type)) break;
+
+      fields.push(current);
+
+      // 다음 블록: params 배열에서 FIELD_TYPES에 속하는 마지막 object
+      const p: any[] = current.params || [];
+      let next: any = null;
+      for (let i = p.length - 1; i >= 0; i--) {
+        if (p[i] && typeof p[i] === 'object' && FIELD_TYPES.has(p[i].type)) {
+          next = p[i];
+          break;
+        }
+      }
+      current = next;
+    }
+
+    return fields;
+  }
+
+  // function_create 블록을 재귀 탐색으로 찾아 params[0]에서 체인 시작
+  function findAndTraverse(node: any): any[] | null {
+    if (!node) return null;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const result = findAndTraverse(item);
+        if (result) return result;
+      }
+      return null;
+    }
+    if (typeof node === 'object') {
+      if (node.type === 'function_create' && node.params?.[0]) {
+        return traverseChain(node.params[0]);
+      }
+      if (node.params) return findAndTraverse(node.params);
+    }
+    return null;
+  }
+
+  // 1. funcDef.params 직접 접근 (def_functions 블록 자체인 경우)
+  if (funcDef.params) {
+    const result = findAndTraverse(funcDef.params);
+    if (result && result.length > 0) return result;
+    // function_create 없이 직접 field blocks인 경우
+    const rawParams: any[] = Array.isArray(funcDef.params[0]) ? funcDef.params[0] : funcDef.params;
+    const direct = rawParams.filter((p: any) => p?.type && FIELD_TYPES.has(p.type));
+    if (direct.length > 0) return direct;
+  }
+
+  // 2. funcDef.content 직렬화된 경우
+  if (funcDef.content) {
+    let content = funcDef.content;
+    if (typeof content === 'string') {
+      try { content = JSON.parse(content); } catch { content = null; }
+    }
+    if (!content) return [];
+    const result = findAndTraverse(content);
+    if (result) return result;
+  }
+
+  return [];
 }
 
 /**
@@ -445,7 +584,22 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
 
   // 함수 정의 블록
   if (type === 'def_functions') {
-    return extractFunctionNameFromDef(block) || '함수 정의';
+    const rawParams: any[] = Array.isArray(params[0]) ? params[0] : params;
+    const parts: string[] = [];
+    rawParams.forEach((subP: any) => {
+      if (!subP?.type) return;
+      if (subP.type === 'function_field_label') {
+        const label = subP.params?.[0] ? String(subP.params[0]) : '';
+        if (label) parts.push(label);
+      } else if (subP.type === 'function_field_boolean' || subP.type === 'function_param_boolean') {
+        const name = subP.params?.[0] ? String(subP.params[0]) : '판단';
+        parts.push(`<${name}>`);
+      } else {
+        const name = subP.params?.[0] ? String(subP.params[0]) : '값';
+        parts.push(`(${name})`);
+      }
+    });
+    return parts.length > 0 ? parts.join(' ') : (extractFunctionNameFromDef(block) || '함수 정의');
   }
 
   // 함수 파라미터 블록 이름 표시
@@ -463,12 +617,44 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
   if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
     const funcId = type.startsWith('func_') ? type.slice(5) : type;
     const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
+
+    // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
+    if (found) {
+      const fieldBlocks = getFuncDefFieldBlocks(found);
+      if (fieldBlocks.length > 0) {
+        const parts: string[] = [];
+        let callParamIdx = 0;
+        for (const field of fieldBlocks) {
+          if (field.type === 'function_field_label') {
+            const label = field.params?.[0] ? String(field.params[0]) : '';
+            if (label) parts.push(label);
+          } else {
+            const actualParam = callParamIdx < params.length ? params[callParamIdx] : null;
+            const isBoolean = field.type === 'function_field_boolean' || field.type === 'function_param_boolean';
+            if (isBoolean) {
+              const name = actualParam?.params?.[0] ? String(actualParam.params[0]) : '판단';
+              parts.push(`<${name}>`);
+            } else {
+              parts.push(formatParamValue(actualParam, ctx) || '?');
+            }
+            callParamIdx++;
+          }
+        }
+        return parts.join(' ').replace(/\s+/g, ' ').trim();
+      }
+    }
+
+    // 정의 없는 경우 폴백
     const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
-    const paramTexts = params
-      .map((p: any) => formatParamValue(p, ctx))
-      .filter(Boolean)
-      .join(' ');
-    return paramTexts ? `${funcName} (${paramTexts})` : funcName;
+    const paramParts = params.map((p: any) => {
+      const pType = p?.type || '';
+      if (pType === 'function_field_boolean' || pType === 'function_param_boolean') {
+        const name = p.params?.[0] ? String(p.params[0]) : '판단';
+        return `<${name}>`;
+      }
+      return formatParamValue(p, ctx) || null;
+    }).filter(Boolean);
+    return paramParts.length > 0 ? `${funcName} ${paramParts.join(' ')}` : funcName;
   }
 
   // number, text, string, angle 등 값 래퍼 블록

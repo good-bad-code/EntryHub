@@ -59,6 +59,35 @@ function InlineParamField({
     return null;
   }
 
+  // function_field_boolean / function_param_boolean 또는 _isBooleanParam 플래그
+  // -> 판단값 슬롯: 육각형 모양으로 <이름> 표시
+  if (
+    typeof param === 'object' &&
+    (param._isBooleanParam ||
+      param.type === 'function_field_boolean' ||
+      param.type === 'function_param_boolean')
+  ) {
+    const name = param.params?.[0] ? String(param.params[0]) : '판단';
+    return (
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: '2px 10px',
+          clipPath: 'polygon(6px 0%, calc(100% - 6px) 0%, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0% 50%)',
+          backgroundColor: '#4562f5',
+          color: '#ffffff',
+          fontSize: '11px',
+          fontWeight: 700,
+          margin: '0 2px',
+          lineHeight: '16px',
+        }}
+      >
+        {name}
+      </span>
+    );
+  }
+
   // get_pictures / get_sounds 블록: ID -> 이름 텍스트 뱃지로 표시
   if (
     typeof param === 'object' &&

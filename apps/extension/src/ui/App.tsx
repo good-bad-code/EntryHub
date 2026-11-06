@@ -584,7 +584,6 @@ export function App({ onClose }: AppProps) {
 
         {currentTab === 'LOCAL_HUB' && (
           <LocalHubTab
-            key={`local_hub_${localHubVersion}`}
             onSelectAsset={(a) => setSelectedAsset(a)}
             onQuickInject={handleQuickInject}
             onOpenLocalUpload={(folderId) => {
@@ -592,6 +591,7 @@ export function App({ onClose }: AppProps) {
               setIsLocalSaveOpen(true);
             }}
             activeColors={activeColors}
+            refreshTrigger={localHubVersion}
           />
         )}
 
