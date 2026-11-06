@@ -147,6 +147,39 @@ export function moveLocalAsset(assetId: string, targetFolderId: string | null): 
   }
 }
 
+/**
+ * 백업 JSON 데이터를 로컬 허브에 불러옵니다.
+ * overwrite=true 이면 기존 데이터를 완전히 지우고 덮어씁니다.
+ * overwrite=false 이면 기존 데이터에 병합하며, ID가 중복되는 항목은 건너뜁니다.
+ */
+export function importLocalHubData(
+  payload: { folders: LocalFolderItem[]; assets: LocalAssetItem[] },
+  overwrite: boolean
+): { addedFolders: number; addedAssets: number } {
+  const store = overwrite ? { folders: [], assets: [] } : getLocalHubData();
+  const existingFolderIds = new Set(store.folders.map((f) => f.id));
+  const existingAssetIds = new Set(store.assets.map((a) => a.id));
+
+  let addedFolders = 0;
+  let addedAssets = 0;
+
+  for (const f of payload.folders) {
+    if (!existingFolderIds.has(f.id)) {
+      store.folders.push(f);
+      addedFolders++;
+    }
+  }
+  for (const a of payload.assets) {
+    if (!existingAssetIds.has(a.id)) {
+      store.assets.push(a);
+      addedAssets++;
+    }
+  }
+
+  saveLocalHubData(store as LocalHubStore);
+  return { addedFolders, addedAssets };
+}
+
 export function moveLocalFolder(folderId: string, targetParentId: string | null): void {
   if (folderId === targetParentId) return;
   const data = getLocalHubData();

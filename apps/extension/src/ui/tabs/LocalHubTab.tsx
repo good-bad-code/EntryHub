@@ -33,6 +33,7 @@ import {
   moveLocalAsset,
   moveLocalFolder,
   updateLocalAsset,
+  importLocalHubData,
 } from '../../infrastructure/storage/localHubStorage';
 
 interface LocalHubTabProps {
@@ -77,6 +78,13 @@ export function LocalHubTab({
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const moreMenuRef = React.useRef<HTMLDivElement>(null);
 
+  // 불러오기 모달 상태
+  const [importModalState, setImportModalState] = useState<{
+    pending: { folders: any[]; assets: any[] };
+    overwrite: boolean;
+  } | null>(null);
+  const importFileInputRef = React.useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
@@ -113,6 +121,48 @@ export function LocalHubTab({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // 불러오기: 파일 선택 트리거
+  const handleImportClick = () => {
+    setIsMoreMenuOpen(false);
+    importFileInputRef.current?.click();
+  };
+
+  // 불러오기: 파일 읽기 및 검증
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // input 초기화 (같은 파일 다시 선택 가능하게)
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target?.result as string);
+        if (
+          parsed?.version !== '1.0' ||
+          !Array.isArray(parsed.folders) ||
+          !Array.isArray(parsed.assets)
+        ) {
+          alert('올바른 Entry-Hub 백업 파일이 아닙니다.\n(.json 내보내기로 만든 파일만 불러올 수 있습니다.)');
+          return;
+        }
+        setImportModalState({ pending: { folders: parsed.folders, assets: parsed.assets }, overwrite: false });
+      } catch {
+        alert('JSON 파싱에 실패했습니다. 파일이 손상되었거나 형식이 잘못되었습니다.');
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+
+  // 불러오기 모달 확인
+  const handleImportConfirm = () => {
+    if (!importModalState) return;
+    const { addedFolders, addedAssets } = importLocalHubData(importModalState.pending, importModalState.overwrite);
+    setImportModalState(null);
+    refreshData();
+    alert(`불러오기 완료!\n추가된 폴더: ${addedFolders}개 / 추가된 에셋: ${addedAssets}개`);
   };
 
   const refreshData = () => {
@@ -389,6 +439,31 @@ export function LocalHubTab({
                   >
                     <Download size={14} color={activeColors.primary} />
                     <span>전체 백업 다운로드 (.json)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      color: activeColors.ink,
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'background-color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeColors.canvasSoft2)}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Download size={14} color={activeColors.primary} style={{ transform: 'rotate(180deg)' }} />
+                    <span>백업 불러오기 (.json)</span>
                   </button>
                 </div>
               )}
@@ -861,6 +936,154 @@ export function LocalHubTab({
           </div>
         )}
       </div>
+
+      {/* 백업 불러오기 hidden file input */}
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={handleImportFileChange}
+      />
+
+      {/* 백업 불러오기 확인 모달 */}
+      {importModalState && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setImportModalState(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '340px',
+              backgroundColor: activeColors.canvas,
+              borderRadius: '10px',
+              border: `1px solid ${activeColors.hairline}`,
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 헤더 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
+                백업 불러오기
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportModalState(null)}
+                style={{ background: 'none', border: 'none', color: activeColors.mute, cursor: 'pointer' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* 불러올 항목 수 안내 */}
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '8px',
+                backgroundColor: activeColors.canvasSoft,
+                border: `1px solid ${activeColors.hairline}`,
+                fontSize: '11px',
+                color: activeColors.body,
+                lineHeight: 1.6,
+              }}
+            >
+              <div>폴더 <strong style={{ color: activeColors.ink }}>{importModalState.pending.folders.length}개</strong></div>
+              <div>에셋 <strong style={{ color: activeColors.ink }}>{importModalState.pending.assets.length}개</strong></div>
+              <div style={{ marginTop: '6px', color: activeColors.mute, fontSize: '10px' }}>
+                추가 모드에서 ID가 중복되는 항목은 건너뜁니다.
+              </div>
+            </div>
+
+            {/* 체크박스: 덮어쓰기 여부 */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                cursor: 'pointer',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1px solid ${importModalState.overwrite ? '#ef4444' : activeColors.hairline}`,
+                backgroundColor: importModalState.overwrite ? 'rgba(239,68,68,0.06)' : activeColors.canvasSoft,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={importModalState.overwrite}
+                onChange={(e) =>
+                  setImportModalState((prev) => prev ? { ...prev, overwrite: e.target.checked } : null)
+                }
+                style={{ marginTop: '1px', accentColor: '#ef4444', cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: importModalState.overwrite ? '#ef4444' : activeColors.ink }}>
+                  기존 데이터를 모두 지우고 덮어쓰기
+                </div>
+                <div style={{ fontSize: '10px', color: activeColors.mute, marginTop: '2px' }}>
+                  체크 해제 시: 기존 데이터에 새 항목만 추가합니다.
+                </div>
+              </div>
+            </label>
+
+            {/* 경고 문구 (덮어쓰기 선택 시) */}
+            {importModalState.overwrite && (
+              <div style={{ fontSize: '11px', color: '#ef4444', fontWeight: 600, textAlign: 'center' }}>
+                주의: 기존 로컬 허브의 모든 폴더와 에셋이 삭제됩니다.
+              </div>
+            )}
+
+            {/* 버튼 */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setImportModalState(null)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: `1px solid ${activeColors.hairline}`,
+                  backgroundColor: activeColors.canvas,
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  color: activeColors.body,
+                }}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleImportConfirm}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: importModalState.overwrite ? '#ef4444' : activeColors.primary,
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {importModalState.overwrite ? '덮어쓰고 불러오기' : '추가하여 불러오기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 폴더/에셋 이동 모달 */}
       {movingItem && (
