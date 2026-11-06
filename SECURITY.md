@@ -13,7 +13,7 @@
 
 보안 취약점을 발견하셨다면 GitHub Issues에 공개 보고하지 마시고, 아래 경로로 비공개 보고해 주세요:
 
-- GitHub Security Advisories: [Private vulnerability reporting](https://github.com/your-username/entry-hub/security/advisories/new)
+- GitHub Security Advisories: [Private vulnerability reporting](https://github.com/good-bad-code/entry-hub/security/advisories/new)
 
 보고 시 다음 내용을 포함해 주세요:
 1. 취약점 유형 (XSS, 임의 코드 실행, 정보 유출 등)
