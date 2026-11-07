@@ -31,6 +31,7 @@ import { MyPickTab } from './tabs/MyPickTab';
 import { LocalHubTab } from './tabs/LocalHubTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { supabase } from '../infrastructure/supabase/client';
+import { syncEntryNickname } from '../content/verifier';
 
 export type TabType = 'MAIN' | 'EXPLORE' | 'CATEGORY' | 'MYPICK' | 'LOCAL_HUB' | 'SETTINGS';
 
@@ -304,6 +305,38 @@ export function App({ onClose }: AppProps) {
     setCurrentUser(null);
     addToast('info', '로그아웃되었습니다.');
   };
+
+  // 엔트리 닉네임 변경 감지 시 실시간 자동 동기화
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const handleSync = () => {
+      syncEntryNickname((newNickname) => {
+        addToast('info', `엔트리 닉네임 변경이 감지되어 '${newNickname}'(으)로 자동 동기화되었습니다.`);
+        setCurrentUser((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                user_metadata: {
+                  ...prev.user_metadata,
+                  nickname: newNickname,
+                },
+              }
+            : prev
+        );
+      });
+    };
+
+    // 1초 후 최초 1회 실행
+    const timer = setTimeout(handleSync, 1000);
+    // 60초마다 주기적 확인
+    const interval = setInterval(handleSync, 60000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [currentUser]);
 
 
   return (

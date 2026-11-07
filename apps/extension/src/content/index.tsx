@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '../ui/App';
-import { initVerificationWatcher } from './verifier';
+import { initVerificationWatcher, syncEntryNickname } from './verifier';
 
 declare const chrome: any;
 
@@ -179,4 +179,13 @@ if (isPlayEntry) {
   injectBridgeScript();
   initSidebarInjector();
   initVerificationWatcher();
+
+  // 엔트리 페이지 로드 후 닉네임 실시간 자동 동기화 (초기 2.5초 후 1회 및 60초 주기)
+  setTimeout(() => {
+    syncEntryNickname();
+  }, 2500);
+
+  setInterval(() => {
+    syncEntryNickname();
+  }, 60000);
 }

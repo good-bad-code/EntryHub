@@ -771,3 +771,76 @@ export function initVerificationWatcher() {
     window.removeEventListener('popstate', checkAndShowVerificationModal);
   };
 }
+
+/**
+ * 정확한 엔트리 로그인 유저 정보(_id 포함)를 비동기로 조회
+ */
+export async function getAccurateEntryUser(maxWaitMs = 1500): Promise<DetectedEntryUser | null> {
+  const immediate = detectEntryUser();
+  if (immediate && immediate._id && immediate.nickname) {
+    return immediate;
+  }
+
+  requestBridgeEntryUser();
+
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 200));
+    const user = detectEntryUser();
+    if (user && user._id && user.nickname) {
+      return user;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 엔트리에서 변경된 닉네임을 Entry-Hub에 실시간 자동 동기화
+ * (현재 로그인된 Hub 계정의 entry_user_id와 현재 엔트리 유저의 _id가 일치하고, 닉네임이 다를 경우에만 갱신)
+ */
+export async function syncEntryNickname(onSuccess?: (newNickname: string) => void): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return false;
+
+    const entryUser = await getAccurateEntryUser();
+    if (!entryUser || !entryUser._id || !entryUser.nickname) return false;
+
+    // 현재 사용자의 DB 프로필 조회
+    const { data: profile, error } = await supabase
+      .from('users')
+      .select('id, entry_user_id, nickname')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (error || !profile) return false;
+
+    // 연동된 엔트리 계정 고유번호가 일치하고, 닉네임이 달라졌다면 자동 갱신
+    if (profile.entry_user_id === entryUser._id && profile.nickname !== entryUser.nickname) {
+      console.log(`[Entry-Hub] 실시간 닉네임 동기화: '${profile.nickname}' -> '${entryUser.nickname}'`);
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ nickname: entryUser.nickname })
+        .eq('id', session.user.id);
+
+      if (!updateError) {
+        try {
+          await supabase.auth.updateUser({
+            data: { nickname: entryUser.nickname }
+          });
+        } catch {}
+
+        if (onSuccess) {
+          onSuccess(entryUser.nickname);
+        }
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('[Entry-Hub] 닉네임 자동 동기화 실패:', err);
+  }
+  return false;
+}
+
