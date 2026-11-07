@@ -119,32 +119,83 @@ ${JSON.stringify(context.currentScript || [], null, 2)}`;
   return parseHuberResponse(rawResponseText);
 }
 
-// 1. Google Gemini 호출
+// 1. Google Gemini 호출 (v1 GA 버전 우선 및 모델/버전 fallback)
 async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
-  const geminiModel = modelId === 'gemini-1.5-pro' ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+  const isPro = modelId === 'gemini-1.5-pro';
+  const is20Flash = modelId === 'gemini-2.0-flash';
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n[사용자 요청]\n${prompt}` }] }],
-      generationConfig: {
-        temperature: 0.2,
-        topP: 0.9,
-      },
-    }),
-  });
+  // 모델명 및 API 버전 후보군 (구글 API 키 및 리전별 지원 호환성 보장)
+  let candidateUrls: string[] = [];
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Gemini API 호출 실패 (상태 코드: ${res.status})`);
+  if (is20Flash) {
+    candidateUrls = [
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    ];
+  } else if (isPro) {
+    candidateUrls = [
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp-02-05:generateContent?key=${apiKey}`,
+    ];
+  } else {
+    // gemini-1.5-flash (v1 GA 엔드포인트 최우선)
+    candidateUrls = [
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    ];
   }
 
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Gemini 응답에서 텍스트를 찾을 수 없습니다.');
-  return text;
+  let lastErrorMsg = '';
+
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n[사용자 요청]\n${prompt}` }] }],
+          generationConfig: {
+            temperature: 0.2,
+            topP: 0.9,
+          },
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          return text;
+        }
+      }
+
+      const err = await res.json().catch(() => ({}));
+      lastErrorMsg = err.error?.message || `상태 코드 ${res.status}`;
+
+      // 400(잘못된 키), 403(권한 없음), 429(쿼터 초과)는 fallback 없이 즉시 사용자에게 전달
+      if (res.status === 400 && lastErrorMsg.includes('API_KEY_INVALID')) {
+        throw new Error('Google Gemini API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.');
+      }
+      if (res.status === 403) {
+        throw new Error('Gemini API 사용 권한이 없거나 제한되었습니다 (403 Forbidden).');
+      }
+      if (res.status === 429) {
+        throw new Error('Gemini API 호출 한도(Quota)를 초과했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (e: any) {
+      if (e.message && (e.message.includes('API 키') || e.message.includes('한도') || e.message.includes('권한'))) {
+        throw e;
+      }
+      lastErrorMsg = e.message || lastErrorMsg;
+    }
+  }
+
+  throw new Error(`Gemini API 호출 실패: ${lastErrorMsg}`);
 }
 
 // 2. OpenAI 호출

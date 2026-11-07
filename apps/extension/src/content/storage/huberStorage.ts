@@ -5,6 +5,7 @@
 
 export type HuberModelId =
   | 'gemini-1.5-flash'
+  | 'gemini-2.0-flash'
   | 'gemini-1.5-pro'
   | 'gpt-4o-mini'
   | 'gpt-4o'
@@ -29,6 +30,13 @@ export const HUBER_MODELS: HuberModelInfo[] = [
     provider: 'gemini',
     providerName: 'Google Gemini',
     description: '빠르고 경제적이며 엔트리 블록 생성에 최적화',
+  },
+  {
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash (최신)',
+    provider: 'gemini',
+    providerName: 'Google Gemini',
+    description: '구글 차세대 초고속 플래시 모델',
   },
   {
     id: 'gemini-1.5-pro',
