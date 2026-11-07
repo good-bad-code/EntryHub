@@ -298,7 +298,7 @@ function serializeEntryObject(liveObj: any): any {
   // 5. 스크립트(scripts) 추출
   let script = objJson.script;
   if (!script && liveObj.script) {
-    script = typeof liveObj.script.toJSON === 'function' ? liveObj.script.toJSON(true) : liveObj.script;
+    script = typeof liveObj.script.toJSON === 'function' ? liveObj.script.toJSON(false) : liveObj.script;
   }
 
   // 6. selectedPicture 보정
@@ -393,7 +393,7 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
         const blocks = t.getBlocks?.() || [];
         const rootBlock = blocks[0];
         if (!rootBlock) return null;
-        const blockJson = typeof rootBlock.toJSON === 'function' ? rootBlock.toJSON(true) : rootBlock;
+        const blockJson = typeof rootBlock.toJSON === 'function' ? rootBlock.toJSON(false) : rootBlock;
         const blockCount = blocks.length;
         const displayName = getEntryBlockTitle(rootBlock);
         const isTarget = targetBlock ? (rootBlock === targetBlock || targetBlock.getThread?.() === t) : false;
@@ -421,7 +421,7 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       throw new Error('선택된 코드 블록이 없습니다. 에디터에 블록을 추가해 주세요.');
     }
 
-    const blockJson = typeof targetBlock.toJSON === 'function' ? targetBlock.toJSON(true) : targetBlock;
+    const blockJson = typeof targetBlock.toJSON === 'function' ? targetBlock.toJSON(false) : targetBlock;
     const initialTitle = getEntryBlockTitle(targetBlock);
 
     // 현재 선택된 오브젝트의 모양(pictures) 및 소리(sounds) 정보도 함께 추출하여

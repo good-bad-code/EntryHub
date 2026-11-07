@@ -25,6 +25,7 @@ export interface HuberContext {
   sounds: Array<{ id: string; name: string }>;
   variables: Array<{ id: string; name: string }>;
   messages: Array<{ id: string; name: string }>;
+  functions?: any[];
   currentScript: HuberScript;
 }
 
@@ -93,6 +94,7 @@ export async function generateHuberScript(
 - 등록된 모양 목록: ${JSON.stringify(context.pictures || [])}
 - 등록된 소리 목록: ${JSON.stringify(context.sounds || [])}
 - 등록된 변수 목록: ${JSON.stringify(context.variables || [])}
+- 등록된 함수 목록: ${JSON.stringify((context.functions || []).map((f: any) => ({ id: f.id, name: f.name })))}
 - 현재 적용된 기존 스크립트:
 ${JSON.stringify(context.currentScript || [], null, 2)}`;
   }

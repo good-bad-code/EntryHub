@@ -298,9 +298,13 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
   }
 
   // 함수 호출 블록 (func_... 또는 type이 함수 id와 일치하는 경우)
-  if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
+  if (type.startsWith('func_') || functions.some((f: any) => (f.id || f._id) === type || `func_${f.id || f._id}` === type)) {
     const funcId = type.startsWith('func_') ? type.slice(5) : type;
-    const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
+    const found = functions.find((f: any) => {
+      if (!f) return false;
+      const fId = f.id || f._id;
+      return fId === funcId || fId === type || `func_${fId}` === type;
+    });
 
     // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
     if (found) {
@@ -334,6 +338,13 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
     params.forEach((param, idx) => {
       if (param === null || param === undefined) return;
       const pType = param?.type || '';
+      // function_field_string/boolean은 정의 descriptor이므로 실제 값 슬롯으로 처리
+      if (pType === 'function_field_string' || pType === 'function_param_string') {
+        // params[1] 이후에 실제 호출 값이 담길 수 있으나 없으면 빈 슬롯
+        const actualVal = param.params?.[1] ?? null;
+        segments.push({ type: 'param', paramIndex: idx, param: actualVal });
+        return;
+      }
       const isBoolean = pType === 'function_field_boolean' || pType === 'function_param_boolean';
       segments.push({ type: 'param', paramIndex: idx, param: isBoolean ? { ...param, _isBooleanParam: true } : param });
     });
@@ -438,7 +449,7 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
 
       fields.push(current);
 
-      // 다음 블록: params 배열에서 FIELD_TYPES에 속하는 마지막 object
+      // 다음 블록: params 배열에서 FIELD_TYPES에 속하는 object 탐색
       const p: any[] = current.params || [];
       let next: any = null;
       for (let i = p.length - 1; i >= 0; i--) {
@@ -446,6 +457,10 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
           next = p[i];
           break;
         }
+      }
+      // params에 없으면 next 연결 블록 확인
+      if (!next && current.next && typeof current.next === 'object' && FIELD_TYPES.has(current.next.type)) {
+        next = current.next;
       }
       current = next;
     }
@@ -464,8 +479,14 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
       return null;
     }
     if (typeof node === 'object') {
-      if (node.type === 'function_create' && node.params?.[0]) {
+      if ((node.type === 'function_create' || node.type === 'function_create_value') && node.params?.[0]) {
         return traverseChain(node.params[0]);
+      }
+      // def_functions 직접 타입: params 배열 자체가 field chain 시작점
+      if (node.type === 'def_functions' && node.params) {
+        const rawParams: any[] = Array.isArray(node.params[0]) ? node.params[0] : node.params;
+        const firstField = rawParams.find((p: any) => p?.type && FIELD_TYPES.has(p.type));
+        if (firstField) return traverseChain(firstField);
       }
       if (node.params) return findAndTraverse(node.params);
     }
@@ -628,9 +649,13 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
   }
 
   // 함수 호출 블록
-  if (type.startsWith('func_') || functions.some((f) => f.id === type || `func_${f.id}` === type)) {
+  if (type.startsWith('func_') || functions.some((f: any) => (f.id || f._id) === type || `func_${f.id || f._id}` === type)) {
     const funcId = type.startsWith('func_') ? type.slice(5) : type;
-    const found = functions.find((f) => f.id === funcId || `func_${f.id}` === type);
+    const found = functions.find((f: any) => {
+      if (!f) return false;
+      const fId = f.id || f._id;
+      return fId === funcId || fId === type || `func_${fId}` === type;
+    });
 
     // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
     if (found) {

@@ -129,6 +129,11 @@ export function HuberTab({
             id: m.id || m.id_,
             name: m.name || m.name_,
           })),
+          functions: Array.isArray(raw.functions)
+            ? raw.functions
+            : Array.isArray(raw.sprite?.functions)
+            ? raw.sprite.functions
+            : [],
           currentScript: Array.isArray(scriptData) ? scriptData : [],
         });
       }
@@ -630,6 +635,7 @@ export function HuberTab({
                             scripts={currentContext.currentScript}
                             pictures={currentContext.pictures}
                             sounds={currentContext.sounds}
+                            functions={currentContext.functions}
                           />
                         </div>
                         <div>
@@ -640,6 +646,7 @@ export function HuberTab({
                             scripts={msg.script}
                             pictures={currentContext.pictures}
                             sounds={currentContext.sounds}
+                            functions={currentContext.functions}
                           />
                         </div>
                       </div>
@@ -648,6 +655,7 @@ export function HuberTab({
                         scripts={msg.script}
                         pictures={currentContext?.pictures}
                         sounds={currentContext?.sounds}
+                        functions={currentContext?.functions}
                       />
                     )}
                   </div>
