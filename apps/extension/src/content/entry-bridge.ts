@@ -1656,7 +1656,7 @@ function loadCodeToEntry(codeData: any) {
     }
   }
 
-  // 6. 블록 데이터 정규화 및 스레드 생성 (단독 필드/표현식 및 다중 블록 안전 주입)
+  // 6. 블록 데이터 정규화 및 스레드 생성 (단독 필드/표현식, 1차원 단일 스레드, 2차원 다중 스레드 전체 지원)
   let rawBlock = codeData.script || codeData.block || codeData.data || codeData;
   if (typeof rawBlock === 'string') {
     try {
@@ -1665,6 +1665,9 @@ function loadCodeToEntry(codeData: any) {
   }
   if (rawBlock?.block) {
     rawBlock = rawBlock.block;
+  }
+  if (rawBlock?.script) {
+    rawBlock = rawBlock.script;
   }
 
   // 블록 내부의 변수/리스트 ID 매핑 치환
@@ -1782,39 +1785,57 @@ function loadCodeToEntry(codeData: any) {
 
   rawBlock = remapBlockResources(rawBlock);
 
-  // 배열이 아닌 단일 객체인 경우 배열 형태로 래핑
-  const blockArray = Array.isArray(rawBlock) ? rawBlock : [rawBlock];
-
-  // 각 블록의 ID 갱신 및 위치 보정 (기존 캔버스 상단 좌측 적절한 위치로 오프셋)
-  const preparedBlocks = blockArray.map((b: any, idx: number) => {
-    const clone = JSON.parse(JSON.stringify(b));
-    clone.id = generateEntryHash();
-    if (idx === 0) {
-      clone.x = (clone.x !== undefined && clone.x !== null) ? Number(clone.x) : 60;
-      clone.y = (clone.y !== undefined && clone.y !== null) ? Number(clone.y) : 60;
+  // 스레드 리스트(2차원 배열)로 정규화
+  // 1) 2차원 배열 (허버 스크립트: [[b1, b2], [b3, b4]])
+  // 2) 1차원 배열 (단일 스레드: [b1, b2])
+  // 3) 단일 블록 객체 ({ type: '...' })
+  let threadList: any[][] = [];
+  if (Array.isArray(rawBlock)) {
+    if (rawBlock.length > 0 && Array.isArray(rawBlock[0])) {
+      threadList = rawBlock as any[][];
+    } else {
+      threadList = [rawBlock];
     }
-    return clone;
-  });
-
-  // Entry.do('addThread', preparedBlocks) 호출로 안전한 Undo/Redo 기록 및 스레드 생성
-  try {
-    if (Entry.do && Entry.STATIC?.COMMAND_TYPES?.addThread) {
-      Entry.do('addThread', preparedBlocks);
-    } else if (Entry.playground?.mainWorkspace?.board?.code?.createThread) {
-      Entry.playground.mainWorkspace.board.code.createThread(preparedBlocks);
-    } else if (typeof Entry.dispatchEvent === 'function') {
-      Entry.dispatchEvent('addBackPackToEntry', 'block', preparedBlocks[0] || rawBlock);
-    }
-  } catch (err) {
-    console.warn('[Entry-Hub] Entry.do(addThread) fallback:', err);
-    try {
-      if (Entry.playground?.mainWorkspace?.board?.code?.createThread) {
-        Entry.playground.mainWorkspace.board.code.createThread(preparedBlocks);
-      }
-    } catch (e) {
-      console.error('[Entry-Hub] 블록 코드 주입 최종 실패:', e);
-    }
+  } else if (rawBlock && typeof rawBlock === 'object') {
+    threadList = [[rawBlock]];
   }
+
+  // 각 스레드별로 ID 갱신 및 에디터에 주입
+  threadList.forEach((threadBlocks: any[], threadIdx: number) => {
+    if (!Array.isArray(threadBlocks) || threadBlocks.length === 0) return;
+
+    const startX = 60 + threadIdx * 240;
+    const startY = 60;
+
+    const preparedBlocks = threadBlocks.map((b: any, bIdx: number) => {
+      const clone = JSON.parse(JSON.stringify(b));
+      clone.id = generateEntryHash();
+      if (bIdx === 0) {
+        clone.x = clone.x !== undefined && clone.x !== null ? Number(clone.x) : startX;
+        clone.y = clone.y !== undefined && clone.y !== null ? Number(clone.y) : startY;
+      }
+      return clone;
+    });
+
+    try {
+      if (Entry.do && Entry.STATIC?.COMMAND_TYPES?.addThread) {
+        Entry.do('addThread', preparedBlocks);
+      } else if (Entry.playground?.mainWorkspace?.board?.code?.createThread) {
+        Entry.playground.mainWorkspace.board.code.createThread(preparedBlocks);
+      } else if (typeof Entry.dispatchEvent === 'function') {
+        Entry.dispatchEvent('addBackPackToEntry', 'block', preparedBlocks[0] || threadBlocks);
+      }
+    } catch (err) {
+      console.warn('[Entry-Hub] Entry.do(addThread) fallback:', err);
+      try {
+        if (Entry.playground?.mainWorkspace?.board?.code?.createThread) {
+          Entry.playground.mainWorkspace.board.code.createThread(preparedBlocks);
+        }
+      } catch (e) {
+        console.error('[Entry-Hub] 블록 코드 주입 최종 실패:', e);
+      }
+    }
+  });
 
   repairOrphanVariables();
   refreshEntryEditorViews();
