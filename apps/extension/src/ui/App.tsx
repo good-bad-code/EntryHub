@@ -15,6 +15,7 @@ import {
   ExternalLink,
   HardDrive,
   Settings,
+  Sparkles,
 } from 'lucide-react';
 import { colors, getThemeColors, ThemeMode, ThemeColors } from '@entry-hub/shared';
 import { WindowPostMessageEntryBridgeAdapter } from '../adapters/bridge/WindowPostMessageEntryBridgeAdapter';

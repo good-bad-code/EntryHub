@@ -304,14 +304,14 @@ export function HuberTab({
           style={{
             padding: '12px 14px',
             borderRadius: '10px',
-            backgroundColor: `${activeColors.warn}15`,
-            border: `1px solid ${activeColors.warn}40`,
+            backgroundColor: `${activeColors.warning}15`,
+            border: `1px solid ${activeColors.warning}40`,
             display: 'flex',
             alignItems: 'flex-start',
             gap: '10px',
           }}
         >
-          <AlertCircle size={16} color={activeColors.warn} style={{ flexShrink: 0, marginTop: '2px' }} />
+          <AlertCircle size={16} color={activeColors.warning} style={{ flexShrink: 0, marginTop: '2px' }} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, color: activeColors.ink }}>
               {selectedModelInfo.providerName} API 키가 등록되지 않았습니다
@@ -327,7 +327,7 @@ export function HuberTab({
                 marginTop: '4px',
                 padding: '4px 10px',
                 borderRadius: '6px',
-                backgroundColor: activeColors.warn,
+                backgroundColor: activeColors.warning,
                 color: '#fff',
                 border: 'none',
                 fontSize: '11px',
@@ -347,9 +347,9 @@ export function HuberTab({
           style={{
             padding: '10px 12px',
             borderRadius: '8px',
-            backgroundColor: `${activeColors.danger}15`,
-            border: `1px solid ${activeColors.danger}40`,
-            color: activeColors.danger,
+            backgroundColor: `${activeColors.error}15`,
+            border: `1px solid ${activeColors.error}40`,
+            color: activeColors.error,
             fontSize: '11px',
             fontWeight: 600,
             display: 'flex',
@@ -361,7 +361,7 @@ export function HuberTab({
           <button
             type="button"
             onClick={() => setErrorMessage(null)}
-            style={{ background: 'none', border: 'none', color: activeColors.danger, cursor: 'pointer', fontWeight: 700 }}
+            style={{ background: 'none', border: 'none', color: activeColors.error, cursor: 'pointer', fontWeight: 700 }}
           >
             닫기
           </button>
