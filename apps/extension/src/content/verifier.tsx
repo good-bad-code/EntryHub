@@ -392,87 +392,35 @@ export function requestBridgeEntryUser() {
 
 /**
  * 엔트리 페이지에서 현재 로그인된 유저 정보 감지
- * (절대 타인/작품 제작자 정보를 오인식하지 않으며, 비로그인 상태를 최우선 확정합니다)
+ * (Next.js Redux 스토어 initialState.common.user 및 isSigned를 기반으로 정확하게 판별)
  */
 export function detectEntryUser(): DetectedEntryUser | null {
-  // 1. 화면 상단 네비게이션/헤더에 '로그인' 버튼 또는 /signin 링크가 존재하면 무조건 비로그인 상태로 확정!
-  try {
-    const loginElements = document.querySelectorAll(
-      'header a, header button, nav a, nav button, [class*="Header"] a, [class*="Header"] button, a[href*="/signin"], a[href*="/login"]'
-    );
-    for (const el of Array.from(loginElements)) {
-      const text = el.textContent?.trim() || '';
-      const href = el.getAttribute('href') || '';
-      if (
-        (text === '로그인' || text === '로그인 / 회원가입' || href.includes('/signin') || href.includes('/login')) &&
-        !text.includes('로그아웃')
-      ) {
-        cachedBridgeUser = null;
-        return null;
-      }
-    }
-  } catch {}
-
-  // 2. 브릿지 캐시 확인 (창작 워크스페이스인 경우)
-  if (cachedBridgeUser && (cachedBridgeUser.nickname || cachedBridgeUser._id)) {
-    return cachedBridgeUser;
-  }
-  requestBridgeEntryUser();
-
-  const isWorkspace = typeof window !== 'undefined' && window.location.pathname.startsWith('/ws');
-
-  // 3. 엔트리 작품 제작 페이지(/ws) 상단 바의 닉네임 감지 (워크스페이스 전용)
-  if (isWorkspace) {
-    try {
-      const ignoreWords = [
-        'file', 'save', 'help', 'print', 'undo', 'redo', '기본형', '실행', '장면',
-        '로그인', '회원가입', '작품', '블록', '모양', '소리', '속성', '추가하기',
-        '시작하기', '속도', '정지', '초기화', '챌린지', '만들기', '공유하기', '커뮤니티',
-        '생각하기', '탐험하기', '교과서', '스토리', '도움말'
-      ];
-
-      const myButtons = document.querySelectorAll(
-        'header button, header a, header span, .entryHeader button, .entryHeader a, .entryHeader span, [class*="Header"] button, [class*="Header"] a, [class*="Header"] span'
-      );
-      for (const btn of Array.from(myButtons)) {
-        const text = btn.textContent?.trim() || '';
-        const lower = text.toLowerCase();
-        if (
-          text &&
-          text.length >= 2 &&
-          text.length <= 25 &&
-          !ignoreWords.some((w) => lower === w || lower.includes(w))
-        ) {
-          const rect = btn.getBoundingClientRect();
-          if (rect.top >= 0 && rect.top < 60 && rect.left > window.innerWidth * 0.55) {
-            return {
-              nickname: text,
-              id: text,
-            };
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // 4. __NEXT_DATA__ 에서 최상위 세션 유저 객체만 확인 (작품 제작자나 타인 정보 혼동 방지)
+  // 1. Next.js 공식 세션 스토어 (__NEXT_DATA__) 확인
   try {
     const nextDataEl = document.getElementById('__NEXT_DATA__');
     if (nextDataEl?.textContent) {
       const nextData = JSON.parse(nextDataEl.textContent);
+      const props = nextData.props || {};
+      const pageProps = props.pageProps || {};
+      const initialState = pageProps.initialState || props.initialState || {};
 
-      // 공식 세션 유저 경로만 안전하게 확인 (deep search 절대 금지)
-      const pageUser =
-        nextData.props?.pageProps?.user ||
-        nextData.props?.pageProps?.initialState?.user ||
-        nextData.props?.pageProps?.session?.user ||
-        nextData.props?.pageProps?.initialState?.auth?.user;
+      // 1-1. 명백한 비로그인 상태 (isSigned: false)
+      if (pageProps.isSigned === false) {
+        cachedBridgeUser = null;
+        return null;
+      }
 
-      if (pageUser && pageUser._id && pageUser.nickname) {
+      // 1-2. 로그인된 사용자 정보: initialState.common.user
+      const authUser =
+        initialState.common?.user ||
+        pageProps.user ||
+        props.user;
+
+      if (authUser && authUser._id && authUser.nickname) {
         return {
-          nickname: pageUser.nickname,
-          id: pageUser._id,
-          _id: pageUser._id,
+          nickname: authUser.nickname,
+          id: authUser._id,
+          _id: authUser._id,
         };
       }
     }
@@ -480,7 +428,12 @@ export function detectEntryUser(): DetectedEntryUser | null {
     console.warn('[Entry-Hub] __NEXT_DATA__ user detection error:', e);
   }
 
-  // 5. window.Entry?.user 객체 확인 (워크스페이스 에디터)
+  // 2. 창작 워크스페이스(/ws)인 경우 브릿지 캐시 및 Entry.user 확인
+  if (cachedBridgeUser && (cachedBridgeUser.nickname || cachedBridgeUser._id)) {
+    return cachedBridgeUser;
+  }
+  requestBridgeEntryUser();
+
   try {
     const entryUser = (window as any).Entry?.user;
     if (entryUser && entryUser._id && entryUser.nickname) {
@@ -489,6 +442,35 @@ export function detectEntryUser(): DetectedEntryUser | null {
         id: entryUser._id,
         _id: entryUser._id,
       };
+    }
+  } catch {}
+
+  // 3. 헤더 GNB 영역 DOM 확인 (폴백)
+  try {
+    const headerEl = document.querySelector('header, nav, [class*="Header"], [class*="Gnb"]');
+    if (headerEl) {
+      // 헤더 우측에 명시적 '로그인' 버튼이 보이면 비로그인으로 판정
+      const headerLoginBtn = headerEl.querySelector('a[href*="/signin"], button');
+      if (headerLoginBtn && headerLoginBtn.textContent?.trim() === '로그인') {
+        cachedBridgeUser = null;
+        return null;
+      }
+
+      // 헤더 내부의 내 프로필 링크(/profile/xxx) 확인
+      const myProfileLink = headerEl.querySelector('a[href*="/profile/"]');
+      if (myProfileLink) {
+        const href = myProfileLink.getAttribute('href') || '';
+        const match = href.match(/\/profile\/([a-zA-Z0-9_\uac00-\ud7a3]+)/);
+        if (match && match[1]) {
+          const img = myProfileLink.querySelector('img');
+          const nick = img?.getAttribute('alt') || myProfileLink.textContent?.trim() || match[1];
+          return {
+            nickname: nick,
+            id: match[1],
+            _id: match[1],
+          };
+        }
+      }
     }
   } catch {}
 
