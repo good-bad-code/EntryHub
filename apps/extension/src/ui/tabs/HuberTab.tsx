@@ -63,6 +63,7 @@ export function HuberTab({
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastPrompt, setLastPrompt] = useState<string>('');
 
   // 현재 엔트리 에디터에서 선택된 오브젝트 컨텍스트
   const [currentContext, setCurrentContext] = useState<HuberContext | null>(null);
@@ -168,6 +169,7 @@ export function HuberTab({
 
     setErrorMessage(null);
     setInputPrompt('');
+    setLastPrompt(prompt);
 
     const userMsg: HuberMessage = {
       id: `msg_user_${Date.now()}`,
@@ -369,14 +371,43 @@ export function HuberTab({
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            gap: '8px',
           }}
         >
-          <span>{errorMessage}</span>
+          <span style={{ flex: 1 }}>{errorMessage}</span>
+          {lastPrompt && (
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMessage(null);
+                // 마지막 사용자 메시지 버블 제거 후 재전송
+                setMessages((prev) => {
+                  const idx = [...prev].reverse().findIndex((m) => m.role === 'user');
+                  if (idx === -1) return prev;
+                  const realIdx = prev.length - 1 - idx;
+                  return prev.slice(0, realIdx);
+                });
+                handleSendPrompt(lastPrompt);
+              }}
+              style={{
+                flexShrink: 0,
+                padding: '3px 10px',
+                borderRadius: '5px',
+                border: `1px solid ${activeColors.error}60`,
+                backgroundColor: `${activeColors.error}18`,
+                color: activeColors.error,
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setErrorMessage(null)}
-            style={{ background: 'none', border: 'none', color: activeColors.error, cursor: 'pointer', fontWeight: 700 }}
+            style={{ flexShrink: 0, background: 'none', border: 'none', color: activeColors.error, cursor: 'pointer', fontWeight: 700, fontSize: '13px', lineHeight: 1 }}
           >
             X
           </button>
@@ -629,113 +660,47 @@ export function HuberTab({
         {isLoading && (
           <>
             <style>{`
-              @keyframes huber-orb-spin {
-                0%   { transform: rotateY(0deg) rotateX(20deg); }
-                100% { transform: rotateY(360deg) rotateX(20deg); }
+              @keyframes huber-spin {
+                to { transform: rotate(360deg); }
               }
-              @keyframes huber-ring1 {
-                0%   { transform: rotateZ(0deg) rotateX(66deg); }
-                100% { transform: rotateZ(360deg) rotateX(66deg); }
-              }
-              @keyframes huber-ring2 {
-                0%   { transform: rotateZ(120deg) rotateX(66deg); }
-                100% { transform: rotateZ(480deg) rotateX(66deg); }
-              }
-              @keyframes huber-ring3 {
-                0%   { transform: rotateZ(240deg) rotateX(66deg); }
-                100% { transform: rotateZ(600deg) rotateX(66deg); }
-              }
-              @keyframes huber-pulse {
-                0%, 100% { opacity: 1; transform: scale(1); }
-                50%       { opacity: 0.6; transform: scale(0.95); }
-              }
-              @keyframes huber-dot1 {
-                0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-                40%           { transform: scale(1);   opacity: 1; }
-              }
-              @keyframes huber-dot2 {
-                0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-                40%           { transform: scale(1);   opacity: 1; }
-              }
-              @keyframes huber-dot3 {
-                0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-                40%           { transform: scale(1);   opacity: 1; }
+              @keyframes huber-fade-slide {
+                0%, 100% { opacity: 0.4; transform: translateY(0px); }
+                50%       { opacity: 1;   transform: translateY(-2px); }
               }
             `}</style>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px' }}>
-              {/* 3D 오브 아이콘 */}
-              <div style={{ position: 'relative', width: '36px', height: '36px', flexShrink: 0, perspective: '120px' }}>
-                {/* 중앙 코어 구 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px' }}>
+              {/* 그라디언트 아크 스피너 */}
+              <div style={{ position: 'relative', width: '28px', height: '28px', flexShrink: 0 }}>
                 <div
                   style={{
                     position: 'absolute',
-                    inset: '8px',
+                    inset: 0,
                     borderRadius: '50%',
-                    background: `radial-gradient(circle at 35% 35%, #a78bfa, #6366f1 55%, #312e81)`,
-                    boxShadow: '0 0 10px 2px rgba(99,102,241,0.55), inset 0 2px 4px rgba(255,255,255,0.3)',
-                    animation: 'huber-pulse 1.8s ease-in-out infinite',
-                  }}
-                />
-                {/* 링 1 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: '0',
-                    borderRadius: '50%',
-                    border: '2px solid rgba(167,139,250,0.85)',
-                    boxShadow: '0 0 6px rgba(167,139,250,0.4)',
-                    animation: 'huber-ring1 1.2s linear infinite',
-                  }}
-                />
-                {/* 링 2 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: '0',
-                    borderRadius: '50%',
-                    border: '2px solid rgba(99,102,241,0.7)',
-                    boxShadow: '0 0 6px rgba(99,102,241,0.35)',
-                    animation: 'huber-ring2 1.6s linear infinite',
-                  }}
-                />
-                {/* 링 3 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: '3px',
-                    borderRadius: '50%',
-                    border: '1.5px solid rgba(192,132,252,0.55)',
-                    animation: 'huber-ring3 2.1s linear infinite',
+                    background: `conic-gradient(from 0deg, transparent 0%, #6366f1 60%, transparent 100%)`,
+                    animation: 'huber-spin 1s linear infinite',
+                    WebkitMask: 'radial-gradient(circle, transparent 9px, black 10px)',
+                    mask: 'radial-gradient(circle, transparent 9px, black 10px)',
                   }}
                 />
               </div>
 
-              {/* 텍스트 + 점 애니메이션 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: activeColors.ink }}>
-                  허버가 블록 코드를 작성하고 있습니다
+              {/* 텍스트 + 점 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '12px', color: activeColors.mute }}>
+                  생성 중
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {[
-                    { delay: '0s', anim: 'huber-dot1' },
-                    { delay: '0.2s', anim: 'huber-dot2' },
-                    { delay: '0.4s', anim: 'huber-dot3' },
-                  ].map(({ delay, anim }, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        width: '6px',
-                        height: '6px',
-                        borderRadius: '50%',
-                        backgroundColor: '#6366f1',
-                        animation: `${anim} 1.4s ${delay} ease-in-out infinite`,
-                      }}
-                    />
-                  ))}
-                  <span style={{ fontSize: '11px', color: activeColors.mute, marginLeft: '2px' }}>
-                    잠시만 기다려 주세요
-                  </span>
-                </div>
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: '4px',
+                      height: '4px',
+                      borderRadius: '50%',
+                      backgroundColor: '#6366f1',
+                      animation: `huber-fade-slide 1.2s ${i * 0.2}s ease-in-out infinite`,
+                    }}
+                  />
+                ))}
               </div>
             </div>
           </>
@@ -772,12 +737,12 @@ export function HuberTab({
               ? '원하는 블록 코드를 설명해 주세요 (Enter: 전송)'
               : '설정에서 API 키를 먼저 입력해 주세요'
           }
-          disabled={isLoading || !activeKeyInfo}
+          disabled={!activeKeyInfo}
           rows={2}
           style={{
             flex: 1,
             boxSizing: 'border-box',
-            padding: '8px 12px',
+            padding: '14px 12px 6px',
             borderRadius: '8px',
             border: `1.5px solid ${activeColors.hairlineStrong}`,
             backgroundColor: activeColors.canvas,

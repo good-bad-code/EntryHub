@@ -624,15 +624,19 @@ export function App({ onClose }: AppProps) {
       </nav>
 
       {/* Tab Content Body */}
-      <main style={{ flex: 1, overflowY: 'auto', padding: '16px', position: 'relative' }}>
-        {currentTab === 'BETA' && (
-          <HuberTab
-            activeColors={activeColors}
-            onNavigateSettings={() => handleTabChange('SETTINGS')}
-            onApplyScript={handleApplyHuberScript}
-            bridgeAdapter={bridgeAdapter}
-          />
-        )}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+        {/* HuberTab은 언마운트 없이 숨김 처리 → 탭 이동 중에도 AI 생성 유지 */}
+        <div style={{ display: currentTab === 'BETA' ? 'flex' : 'none', flexDirection: 'column', flex: 1, padding: '16px', overflow: 'hidden' }}>
+          {huberSettings.enabled && (
+            <HuberTab
+              activeColors={activeColors}
+              onNavigateSettings={() => handleTabChange('SETTINGS')}
+              onApplyScript={handleApplyHuberScript}
+              bridgeAdapter={bridgeAdapter}
+            />
+          )}
+        </div>
+        <div style={{ display: currentTab !== 'BETA' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '16px' }}>
         {currentTab === 'MAIN' && (
           <MainTab
             onSelectAsset={(a) => setSelectedAsset(a)}
@@ -681,6 +685,7 @@ export function App({ onClose }: AppProps) {
             onSaved={() => addToast('success', '시작 탭 설정이 저장되었습니다.')}
           />
         )}
+        </div>
       </main>
 
       {/* Modals & Toasts */}
