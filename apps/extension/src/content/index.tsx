@@ -161,12 +161,12 @@ const isEntryHubSite =
 if (isEntryHubSite) {
   // Entry-Hub 웹사이트에 확장프로그램 설치 표식 등록
   document.documentElement.setAttribute('data-entry-hub-installed', 'true');
-  window.postMessage({ type: 'ENTRY_HUB_EXTENSION_INSTALLED', version: '1.1.3' }, '*');
+  window.postMessage({ type: 'ENTRY_HUB_EXTENSION_INSTALLED', version: '1.2.0' }, '*');
 
   window.addEventListener('message', (event) => {
     if (event.data?.type === 'CHECK_ENTRY_HUB_INSTALLED') {
       document.documentElement.setAttribute('data-entry-hub-installed', 'true');
-      window.postMessage({ type: 'ENTRY_HUB_EXTENSION_PONG', version: '1.1.3' }, '*');
+      window.postMessage({ type: 'ENTRY_HUB_EXTENSION_PONG', version: '1.2.0' }, '*');
     }
   });
 
