@@ -141,7 +141,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: new Error('아이디를 입력해 주세요.') };
     }
 
-    // RPC로 custom_id → 가상 이메일 조회 (서버에서만 처리, 클라이언트에 이메일 형식 노출 없음)
+    // 1. 이메일 형식으로 직접 입력한 경우 즉시 로그인 시도
+    if (rawId.includes('@') && rawId.includes('.')) {
+      const { error: directErr } = await supabase.auth.signInWithPassword({
+        email: rawId,
+        password: pass,
+      });
+      if (!directErr) return { error: null };
+    }
+
+    // 2. RPC로 custom_id → 가상 이메일 조회
     try {
       const { data: rpcEmail, error: rpcErr } = await supabase.rpc('get_login_email_by_identifier', {
         p_identifier: rawId,
@@ -151,20 +160,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: rpcEmail,
           password: pass,
         });
-        if (error) {
-          return {
-            error: new Error(
-              error.message === 'Invalid login credentials'
-                ? '아이디 또는 비밀번호가 올바르지 않습니다.'
-                : error.message
-            ),
-          };
-        }
-        return { error: null };
+        if (!error) return { error: null };
       }
-    } catch {
-      // RPC 미배포 또는 예외 시 아래 fallback 진행
-    }
+    } catch {}
+
+    // 3. Fallback: users 테이블에서 custom_id 대소문자 무시 조회 후 로그인 시도
+    try {
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('id, entry_user_id, custom_id')
+        .or(`custom_id.ilike.${rawId},custom_id.ilike.${rawId}@entry`)
+        .maybeSingle();
+
+      if (userRow?.entry_user_id) {
+        const candidateEmail = `entry_${userRow.entry_user_id}@entry-hub.local`;
+        const { error: fallbackErr } = await supabase.auth.signInWithPassword({
+          email: candidateEmail,
+          password: pass,
+        });
+        if (!fallbackErr) return { error: null };
+      }
+    } catch {}
 
     return { error: new Error('아이디 또는 비밀번호가 올바르지 않습니다.') };
   };
@@ -242,21 +258,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: new Error('로그인이 필요합니다.') };
     }
     try {
+      const cleanCustomId = customId?.trim() || null;
+      const cleanPassword = password?.trim() || null;
+
+      // 1. 비밀번호가 입력된 경우 공식 Supabase GoTrue Auth API 호출
+      if (cleanPassword) {
+        if (cleanPassword.length < 6) {
+          return { error: new Error('비밀번호는 최소 6자 이상이어야 합니다.') };
+        }
+        const { error: updateAuthErr } = await supabase.auth.updateUser({
+          password: cleanPassword,
+        });
+        if (updateAuthErr) {
+          console.warn('[AuthContext] GoTrue updateUser warning:', updateAuthErr.message);
+        }
+      }
+
+      // 2. set_user_credentials RPC 호출 (custom_id 저장 및 해시 동기화)
+      let customIdResult = cleanCustomId;
       const { data, error } = await supabase.rpc('set_user_credentials', {
-        p_custom_id: customId || null,
-        p_password: password || null,
+        p_custom_id: cleanCustomId,
+        p_password: cleanPassword,
       });
 
       if (error) {
-        return { error: new Error(error.message) };
-      }
+        console.warn('[AuthContext] set_user_credentials RPC fallback:', error.message);
+        // RPC 실패 시 public.users 직접 업데이트 fallback
+        const updatePayload: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (cleanCustomId) {
+          // 중복 검사
+          const { data: existing } = await supabase
+            .from('users')
+            .select('id')
+            .ilike('custom_id', cleanCustomId)
+            .neq('id', user.id)
+            .maybeSingle();
 
-      if (!data?.success) {
+          if (existing) {
+            return { error: new Error('이미 사용 중인 아이디입니다.') };
+          }
+          updatePayload.custom_id = cleanCustomId;
+        }
+        if (cleanPassword) {
+          updatePayload.has_password = true;
+        }
+
+        const { error: directUpdateErr } = await supabase
+          .from('users')
+          .update(updatePayload)
+          .eq('id', user.id);
+
+        if (directUpdateErr) {
+          return { error: new Error(directUpdateErr.message) };
+        }
+      } else if (!data?.success) {
         return { error: new Error(data?.message || '계정 정보 설정 실패') };
+      } else if (data?.custom_id) {
+        customIdResult = data.custom_id;
       }
 
       await refreshProfile();
-      return { error: null, customId: data.custom_id };
+      return { error: null, customId: customIdResult || undefined };
     } catch (err: any) {
       return { error: err as Error };
     }

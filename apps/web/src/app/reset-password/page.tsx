@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Header } from '../../infrastructure/components/layout/Header';
@@ -23,7 +23,6 @@ export default function ResetPasswordPage() {
   const router = useRouter();
   const { colors } = useTheme();
 
-  const [entryUsername, setEntryUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -35,48 +34,31 @@ export default function ResetPasswordPage() {
   const [verificationCode, setVerificationCode] = useState('');
   const [verificationId, setVerificationId] = useState<string | null>(null);
 
-  // URL 쿼리 파라미터 또는 로그인 유저의 entry_username 자동 주입
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const queryUsername = params.get('username');
-      if (queryUsername) {
-        setEntryUsername(queryUsername.trim());
-        return;
-      }
-    }
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user?.id) {
-        supabase
-          .from('users')
-          .select('entry_username')
-          .eq('id', data.user.id)
-          .maybeSingle()
-          .then(({ data: profile }) => {
-            if (profile?.entry_username) {
-              setEntryUsername(profile.entry_username.trim());
-            }
-          });
+  // 컴포넌트 언마운트 시 폴링 정리
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
       }
-    });
+    };
   }, []);
 
-  // 1. 비밀번호 재설정 인증 시작
+  // 1. 비밀번호 재설정 시작 (엔트리 계정 인증 요청)
   const handleStartReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!entryUsername.trim()) {
-      setErrorMsg('엔트리 실제 아이디를 입력해 주세요.');
-      return;
-    }
-    if (newPassword.length < 6) {
+    const cleanPassword = newPassword.trim();
+    const cleanConfirm = confirmPassword.trim();
+
+    if (cleanPassword.length < 6) {
       setErrorMsg('새 비밀번호는 최소 6자 이상이어야 합니다.');
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (cleanPassword !== cleanConfirm) {
       setErrorMsg('새 비밀번호와 비밀번호 확인이 일치하지 않습니다.');
       return;
     }
@@ -84,79 +66,75 @@ export default function ResetPasswordPage() {
     setIsLoading(true);
 
     try {
-      // 해당 엔트리 아이디로 가입된 유저가 있는지 확인
-      const { data: existingUser, error: searchError } = await supabase
-        .from('users')
-        .select('id, entry_username')
-        .ilike('entry_username', entryUsername.trim())
-        .maybeSingle();
-
-      if (searchError) throw searchError;
-
-      if (!existingUser) {
-        setErrorMsg('해당 엔트리 아이디로 가입된 회원을 찾을 수 없습니다. 아이디를 다시 확인해 주세요.');
-        setIsLoading(false);
-        return;
-      }
-
-      // 인증 코드 생성 및 DB 등록
-      const code = `EH-${Math.floor(1000 + Math.random() * 9000)}`;
+      const code = `EH-PWD-${Math.floor(1000 + Math.random() * 9000)}`;
       setVerificationCode(code);
 
+      // entry_verifications 테이블에 RESET_PASSWORD 요청 등록 (엔트리 아이디 수집 금지 정책 준수)
       const { data, error } = await supabase
         .from('entry_verifications')
         .insert({
           code,
-          entry_username: entryUsername.trim(),
+          entry_username: 'ALL',
+          verification_type: 'RESET_PASSWORD',
           status: 'PENDING',
         })
-        .select()
+        .select('id')
         .single();
 
-      if (error) throw error;
+      if (error || !data) {
+        throw new Error(error?.message || '인증 요청 생성 중 오류가 발생했습니다.');
+      }
 
-      setVerificationId(data.id);
+      const vId = data.id;
+      setVerificationId(vId);
       setIsVerifying(true);
+
+      // 엔트리 메인 페이지 팝업 오픈 (확장프로그램이 액션을 포착하여 인증 모달 표시)
+      window.open('https://playentry.org?entry_hub_action=reset_password', '_blank');
+
+      // 인증 승인 여부 실시간 폴링 시작
+      startPolling(vId, cleanPassword);
     } catch (err: any) {
       setErrorMsg(err?.message || '인증 요청 생성 중 오류가 발생했습니다.');
+      setIsVerifying(false);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 2. 인증 모달 오픈 시 실시간 상태 감지 (폴링)
-  useEffect(() => {
-    if (!isVerifying || !verificationId) return;
+  // 2. 인증 승인 상태 폴링
+  const startPolling = (vId: string, targetPassword: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
 
-    let timer: NodeJS.Timeout;
-
-    const checkStatus = async () => {
+    pollingRef.current = setInterval(async () => {
       try {
         const { data, error } = await supabase
           .from('entry_verifications')
-          .select('status')
-          .eq('id', verificationId)
+          .select('status, entry_user_id')
+          .eq('id', vId)
           .single();
 
-        if (error) return;
+        if (error || !data) return;
 
-        if (data?.status === 'EXPIRED') {
+        if (data.status === 'EXPIRED') {
+          if (pollingRef.current) clearInterval(pollingRef.current);
           setIsVerifying(false);
           setIsLoading(false);
-          setErrorMsg('엔트리 페이지에서 인증 요청이 거부되었거나 만료되었습니다.');
+          setErrorMsg('엔트리 사이트에서 인증 요청이 취소되었거나 만료되었습니다.');
           return;
         }
 
-        if (data?.status === 'VERIFIED') {
-          // 인증 완료! RPC 함수 호출하여 비밀번호 재설정 실행
+        if (data.status === 'VERIFIED') {
+          if (pollingRef.current) clearInterval(pollingRef.current);
           setIsVerifying(false);
           setIsLoading(true);
 
+          // RPC 호출하여 해당 엔트리 계정의 비밀번호 재설정 실행
           const { data: rpcRes, error: rpcError } = await supabase.rpc(
             'reset_password_via_entry_verification',
             {
-              p_verification_id: verificationId,
-              p_new_password: newPassword,
+              p_verification_id: vId,
+              p_new_password: targetPassword,
             }
           );
 
@@ -165,7 +143,7 @@ export default function ResetPasswordPage() {
           } else if (rpcRes && !rpcRes.success) {
             setErrorMsg(rpcRes.message || '비밀번호 재설정에 실패했습니다.');
           } else {
-            setSuccessMsg('비밀번호가 성공적으로 변경되었습니다! 새 비밀번호로 로그인해 주세요.');
+            setSuccessMsg('비밀번호가 안전하게 재설정되었습니다! 새 비밀번호로 로그인해 주세요.');
             setTimeout(() => {
               router.push('/login');
             }, 1800);
@@ -173,13 +151,10 @@ export default function ResetPasswordPage() {
           setIsLoading(false);
         }
       } catch (e) {
-        console.warn('Verification poll error:', e);
+        console.warn('[ResetPassword] Polling error:', e);
       }
-    };
-
-    timer = setInterval(checkStatus, 1500);
-    return () => clearInterval(timer);
-  }, [isVerifying, verificationId, newPassword, router]);
+    }, 1500);
+  };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: colors.canvasSoft }}>
@@ -272,58 +247,19 @@ export default function ResetPasswordPage() {
           )}
 
           <form onSubmit={handleStartReset} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            {/* 엔트리 실제 아이디 */}
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '6px',
-                }}
-              >
-                <label
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: colors.ink,
-                  }}
-                >
-                  엔트리 실제 아이디
-                </label>
-                <span style={{ fontSize: '11px', color: colors.mute, fontWeight: 500 }}>
-                  가입 시 인증한 계정
-                </span>
-              </div>
-              <input
-                type="text"
-                value={entryUsername}
-                onChange={(e) => setEntryUsername(e.target.value)}
-                placeholder="예: entry1234 (실제 로그인 ID)"
-                required
-                maxLength={30}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  border: `1px solid ${colors.hairlineStrong}`,
-                  fontSize: '14px',
-                  outline: 'none',
-                  backgroundColor: colors.canvas,
-                  color: colors.ink,
-                }}
-              />
-              <p
-                style={{
-                  margin: '5px 0 0',
-                  fontSize: '11px',
-                  color: colors.mute,
-                  lineHeight: 1.4,
-                }}
-              >
-                엔트리 공식 사이트(playentry.org) 로그인 아이디를 입력하세요.
-              </p>
+            {/* 안내 배너 */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: colors.canvasSoft2,
+                border: `1px solid ${colors.hairlineStrong}`,
+                fontSize: '12px',
+                color: colors.mute,
+                lineHeight: 1.5,
+              }}
+            >
+              아이디를 입력할 필요 없이, 엔트리(playentry.org)에 로그인된 계정 인증을 통해 본인 확인 후 비밀번호를 재설정합니다.
             </div>
 
             {/* 새 비밀번호 */}
@@ -396,7 +332,7 @@ export default function ResetPasswordPage() {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || isVerifying}
               style={{
                 width: '100%',
                 padding: '12px',
@@ -406,8 +342,8 @@ export default function ResetPasswordPage() {
                 color: colors.onPrimary,
                 fontSize: '14px',
                 fontWeight: 600,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                opacity: isLoading ? 0.7 : 1,
+                cursor: isLoading || isVerifying ? 'not-allowed' : 'pointer',
+                opacity: isLoading || isVerifying ? 0.7 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -419,12 +355,12 @@ export default function ResetPasswordPage() {
               {isLoading ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  <span>인증 요청 확인 중...</span>
+                  <span>처리 중...</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck size={16} />
-                  <span>엔트리 계정 인증으로 비밀번호 변경</span>
+                  <span>엔트리 계정 인증으로 비밀번호 재설정</span>
                 </>
               )}
             </button>
@@ -487,7 +423,10 @@ export default function ResetPasswordPage() {
             }}
           >
             <button
-              onClick={() => setIsVerifying(false)}
+              onClick={() => {
+                setIsVerifying(false);
+                if (pollingRef.current) clearInterval(pollingRef.current);
+              }}
               style={{
                 position: 'absolute',
                 top: '16px',
@@ -522,7 +461,7 @@ export default function ResetPasswordPage() {
             </h3>
 
             <p style={{ margin: '0 0 20px', fontSize: '13px', color: colors.mute, lineHeight: 1.5 }}>
-              엔트리(<strong>{entryUsername}</strong>) 계정의 소유자임을 확인하고 있습니다.
+              새로 열린 엔트리 사이트 창에서 비밀번호 재설정 승인 팝업을 확인해 주세요.
             </p>
 
             {/* 인증 코드 박스 */}
@@ -536,14 +475,14 @@ export default function ResetPasswordPage() {
               }}
             >
               <div style={{ fontSize: '12px', color: colors.mute, marginBottom: '6px', fontWeight: 500 }}>
-                생성된 인증 코드
+                보안 인증 식별 코드
               </div>
               <div
                 style={{
-                  fontSize: '26px',
+                  fontSize: '24px',
                   fontWeight: 800,
-                  letterSpacing: '3px',
-                  color: colors.link,
+                  letterSpacing: '2px',
+                  color: colors.primary,
                   fontFamily: 'monospace',
                 }}
               >
@@ -565,15 +504,15 @@ export default function ResetPasswordPage() {
               }}
             >
               <div style={{ fontWeight: 600, color: colors.ink, marginBottom: '4px' }}>
-                인증 완료 방법:
+                진행 방법:
               </div>
-              1. <strong>playentry.org</strong> 사이트 탭을 열어두세요.<br />
-              2. 확장프로그램에서 띄우는 <strong>소유권 인증 모달</strong>에서 코드가 일치하는지 확인하세요.<br />
-              3. <strong>[본인 확인 및 승인]</strong> 버튼을 누르면 비밀번호가 즉시 변경됩니다.
+              1. 열린 엔트리(playentry.org) 창에 로그인되어 있는지 확인합니다.<br />
+              2. 화면에 나타난 Entry-Hub 보안 인증 팝업에서 <strong>[동의 및 비밀번호 재설정]</strong>을 누릅니다.<br />
+              3. 승인이 완료되면 이 창에서 자동으로 비밀번호가 재설정됩니다.
             </div>
 
             <a
-              href="https://playentry.org"
+              href="https://playentry.org?entry_hub_action=reset_password"
               target="_blank"
               rel="noreferrer"
               style={{
@@ -593,7 +532,7 @@ export default function ResetPasswordPage() {
                 boxSizing: 'border-box',
               }}
             >
-              <span>엔트리(playentry.org) 바로가기</span>
+              <span>엔트리 인증 창 다시 열기</span>
               <ExternalLink size={14} />
             </a>
           </div>
