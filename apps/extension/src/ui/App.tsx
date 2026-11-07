@@ -30,10 +30,13 @@ import { CategoryTab } from './tabs/CategoryTab';
 import { MyPickTab } from './tabs/MyPickTab';
 import { LocalHubTab } from './tabs/LocalHubTab';
 import { SettingsTab } from './tabs/SettingsTab';
+import { HuberTab } from './tabs/HuberTab';
+import { getHuberSettings, HuberSettings } from '../content/storage/huberStorage';
+import { HuberScript } from '../content/services/huberClient';
 import { supabase } from '../infrastructure/supabase/client';
 import { syncEntryNickname } from '../content/verifier';
 
-export type TabType = 'MAIN' | 'EXPLORE' | 'CATEGORY' | 'MYPICK' | 'LOCAL_HUB' | 'SETTINGS';
+export type TabType = 'MAIN' | 'EXPLORE' | 'CATEGORY' | 'MYPICK' | 'LOCAL_HUB' | 'SETTINGS' | 'BETA';
 
 export type StartupTabSetting =
   | 'MAIN'
@@ -111,6 +114,17 @@ export function App({ onClose }: AppProps) {
   const [localHubVersion, setLocalHubVersion] = useState(0);
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [huberSettings, setHuberSettings] = useState<HuberSettings>(() => getHuberSettings());
+
+  useEffect(() => {
+    const handleHuberMsg = (e: MessageEvent) => {
+      if (e.data?.type === 'ENTRY_HUB_HUBER_SETTINGS_CHANGED') {
+        setHuberSettings(e.data.settings);
+      }
+    };
+    window.addEventListener('message', handleHuberMsg);
+    return () => window.removeEventListener('message', handleHuberMsg);
+  }, []);
 
   // 탭 변경 시 마지막 활성 탭 저장
   const handleTabChange = (tab: TabType) => {
@@ -297,6 +311,20 @@ export function App({ onClose }: AppProps) {
       addToast('success', `"${asset.title}" 주입 완료!`);
     } catch (err: any) {
       addToast('error', err?.message || '주입 실패');
+    }
+  };
+
+  const handleApplyHuberScript = async (script: HuberScript, title?: string) => {
+    try {
+      const isReady = await bridgeAdapter.isEditorReady();
+      if (!isReady) {
+        throw new Error('엔트리 에디터가 아직 준비되지 않았습니다.');
+      }
+      await bridgeAdapter.injectAsset('CODE', { script });
+      addToast('success', `${title || '허버 블록 코드'}가 에디터에 적용되었습니다!`);
+    } catch (err: any) {
+      addToast('error', err?.message || '에디터 적용에 실패했습니다.');
+      throw err;
     }
   };
 
@@ -583,10 +611,27 @@ export function App({ onClose }: AppProps) {
           label="로컬 허브"
           activeColors={activeColors}
         />
+        {huberSettings.enabled && (
+          <TabButton
+            active={currentTab === 'BETA'}
+            onClick={() => handleTabChange('BETA')}
+            icon={<Sparkles size={14} />}
+            label="Beta"
+            activeColors={activeColors}
+          />
+        )}
       </nav>
 
       {/* Tab Content Body */}
       <main style={{ flex: 1, overflowY: 'auto', padding: '16px', position: 'relative' }}>
+        {currentTab === 'BETA' && (
+          <HuberTab
+            activeColors={activeColors}
+            onNavigateSettings={() => handleTabChange('SETTINGS')}
+            onApplyScript={handleApplyHuberScript}
+            bridgeAdapter={bridgeAdapter}
+          />
+        )}
         {currentTab === 'MAIN' && (
           <MainTab
             onSelectAsset={(a) => setSelectedAsset(a)}
