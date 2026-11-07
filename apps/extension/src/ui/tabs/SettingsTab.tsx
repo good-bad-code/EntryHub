@@ -171,23 +171,24 @@ export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps)
           border: `1px solid ${activeColors.hairline}`,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
             <div
               style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '6px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
                 background: activeColors.gradientDevelop,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
+                flexShrink: 0,
               }}
             >
-              <Sparkles size={14} />
+              <Sparkles size={16} />
             </div>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
                   허버 (Huber) AI 어시스턴트
@@ -205,41 +206,51 @@ export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps)
                   Beta
                 </span>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '11px', color: activeColors.mute }}>
+              <p style={{ margin: '2px 0 0', fontSize: '11px', color: activeColors.mute, lineHeight: 1.4 }}>
                 자연어로 엔트리 블록 코드를 생성하고 시뮬레이션 후 에디터에 적용합니다.
               </p>
             </div>
           </div>
 
-          {/* 토글 스위치 */}
-          <label style={{ position: 'relative', display: 'inline-block', width: '38px', height: '22px', cursor: 'pointer' }}>
+          {/* 토글 스위치 (축소 방지 및 정확한 여백 배치) */}
+          <label
+            style={{
+              position: 'relative',
+              display: 'inline-block',
+              width: '42px',
+              height: '24px',
+              flexShrink: 0,
+              cursor: 'pointer',
+            }}
+          >
             <input
               type="checkbox"
               checked={huberSettings.enabled}
               onChange={(e) => handleToggleHuber(e.target.checked)}
-              style={{ opacity: 0, width: 0, height: 0 }}
+              style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
             />
             <span
               style={{
                 position: 'absolute',
                 inset: 0,
-                borderRadius: '22px',
+                borderRadius: '24px',
                 backgroundColor: huberSettings.enabled ? activeColors.primary : activeColors.hairlineStrong,
-                transition: '0.2s',
+                transition: 'background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                display: 'block',
               }}
             >
               <span
                 style={{
                   position: 'absolute',
-                  content: '""',
-                  height: '16px',
-                  width: '16px',
-                  left: huberSettings.enabled ? '19px' : '3px',
-                  bottom: '3px',
+                  top: '3px',
+                  left: huberSettings.enabled ? '21px' : '3px',
+                  width: '18px',
+                  height: '18px',
                   borderRadius: '50%',
-                  backgroundColor: '#fff',
-                  transition: '0.2s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                  transition: 'left 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  display: 'block',
                 }}
               />
             </span>

@@ -119,34 +119,46 @@ ${JSON.stringify(context.currentScript || [], null, 2)}`;
   return parseHuberResponse(rawResponseText);
 }
 
-// 1. Google Gemini 호출 (v1 GA 버전 우선 및 모델/버전 fallback)
+// 1. Google Gemini 호출 (동적 모델 발견 및 자동 fallback 탑재)
 async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
   const isPro = modelId === 'gemini-1.5-pro';
   const is20Flash = modelId === 'gemini-2.0-flash';
 
-  // 모델명 및 API 버전 후보군 (구글 API 키 및 리전별 지원 호환성 보장)
+  const sendPayload = (url: string) =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n[사용자 요청]\n${prompt}` }] }],
+        generationConfig: {
+          temperature: 0.2,
+          topP: 0.9,
+        },
+      }),
+    });
+
+  // 1단계: 지정된 모델 우선 엔드포인트 목록
   let candidateUrls: string[] = [];
 
   if (is20Flash) {
     candidateUrls = [
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
     ];
   } else if (isPro) {
     candidateUrls = [
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp-02-05:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
     ];
   } else {
-    // gemini-1.5-flash (v1 GA 엔드포인트 최우선)
+    // gemini-1.5-flash
     candidateUrls = [
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
     ];
   }
 
@@ -154,30 +166,18 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
 
   for (const url of candidateUrls) {
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n[사용자 요청]\n${prompt}` }] }],
-          generationConfig: {
-            temperature: 0.2,
-            topP: 0.9,
-          },
-        }),
-      });
+      const res = await sendPayload(url);
 
       if (res.ok) {
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          return text;
-        }
+        if (text) return text;
       }
 
       const err = await res.json().catch(() => ({}));
       lastErrorMsg = err.error?.message || `상태 코드 ${res.status}`;
 
-      // 400(잘못된 키), 403(권한 없음), 429(쿼터 초과)는 fallback 없이 즉시 사용자에게 전달
+      // 치명적 인증 에러는 fallback 없이 즉시 throw
       if (res.status === 400 && lastErrorMsg.includes('API_KEY_INVALID')) {
         throw new Error('Google Gemini API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.');
       }
@@ -193,6 +193,38 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
       }
       lastErrorMsg = e.message || lastErrorMsg;
     }
+  }
+
+  // 2단계: 후보 URL이 모두 404를 반환한 경우, Google ListModels API로 계정 지원 모델 동적 탐색
+  try {
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const models: Array<{ name: string; supportedGenerationMethods?: string[] }> = listData.models || [];
+      const usable = models.filter((m) => m.supportedGenerationMethods?.includes('generateContent'));
+
+      if (usable.length > 0) {
+        // Flash 또는 Pro 계열 우선 매칭
+        const matched =
+          (isPro ? usable.find((m) => m.name.includes('pro')) : null) ||
+          usable.find((m) => m.name.includes('2.0-flash')) ||
+          usable.find((m) => m.name.includes('1.5-flash')) ||
+          usable.find((m) => m.name.includes('flash')) ||
+          usable[0];
+
+        if (matched) {
+          const dynamicUrl = `https://generativelanguage.googleapis.com/v1beta/${matched.name}:generateContent?key=${apiKey}`;
+          const dynRes = await sendPayload(dynamicUrl);
+          if (dynRes.ok) {
+            const dynData = await dynRes.json();
+            const text = dynData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) return text;
+          }
+        }
+      }
+    }
+  } catch (discoveryErr: any) {
+    console.warn('[Huber] Gemini dynamic model discovery failed:', discoveryErr);
   }
 
   throw new Error(`Gemini API 호출 실패: ${lastErrorMsg}`);

@@ -79,10 +79,12 @@ export function HuberTab({
   const selectedModelInfo =
     HUBER_MODELS.find((m) => m.id === settings.selectedModel) || HUBER_MODELS[0];
 
-  // 설정 실시간 감지
+  // 설정 실시간 감지 및 마운트 시 최신화
   useEffect(() => {
+    setSettings(getHuberSettings());
+
     const handleSettingsMsg = (e: MessageEvent) => {
-      if (e.data?.type === 'ENTRY_HUB_HUBER_SETTINGS_CHANGED') {
+      if (e.data?.type === 'ENTRY_HUB_HUBER_SETTINGS_CHANGED' && e.data.settings) {
         setSettings(e.data.settings);
       }
     };
@@ -144,9 +146,17 @@ export function HuberTab({
     const prompt = (textToSend || inputPrompt).trim();
     if (!prompt || isLoading) return;
 
-    if (!activeKeyInfo) {
+    // 전송 시점에 최신 로컬 설정 직접 로드
+    const currentSettings = getHuberSettings();
+    setSettings(currentSettings);
+
+    const currentKeyInfo = getActiveApiKey(currentSettings);
+    const currentModelInfo =
+      HUBER_MODELS.find((m) => m.id === currentSettings.selectedModel) || HUBER_MODELS[0];
+
+    if (!currentKeyInfo) {
       setErrorMessage(
-        `${selectedModelInfo.providerName} API 키가 설정되지 않았습니다. [설정] 탭에서 API 키를 등록해 주세요.`
+        `${currentModelInfo.providerName} API 키가 설정되지 않았습니다. [설정] 탭에서 API 키를 등록해 주세요.`
       );
       return;
     }
@@ -166,8 +176,8 @@ export function HuberTab({
 
     try {
       const result = await generateHuberScript(
-        settings.selectedModel,
-        activeKeyInfo.key,
+        currentSettings.selectedModel,
+        currentKeyInfo.key,
         prompt,
         currentContext || undefined
       );
