@@ -144,19 +144,19 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
     candidateUrls = [
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
     ];
   } else if (isPro) {
     candidateUrls = [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
     ];
   } else {
     // gemini-1.5-flash
     candidateUrls = [
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
     ];
@@ -182,7 +182,7 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
         throw new Error('Google Gemini API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.');
       }
       if (res.status === 403) {
-        throw new Error('Gemini API 사용 권한이 없거나 제한되었습니다 (403 Forbidden).');
+        throw new Error(`Gemini API 권한 오류 (403): ${lastErrorMsg}`);
       }
       if (res.status === 429) {
         throw new Error('Gemini API 호출 한도(Quota)를 초과했습니다. 잠시 후 다시 시도해 주세요.');
@@ -198,7 +198,13 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
   // 2단계: 후보 URL이 모두 404를 반환한 경우, Google ListModels API로 계정 지원 모델 동적 탐색
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (listRes.ok) {
+    if (!listRes.ok) {
+      const listErr = await listRes.json().catch(() => ({}));
+      console.warn('[Huber] Gemini ListModels failed:', listRes.status, listErr);
+      if (listErr.error?.message) {
+        throw new Error(`Google API 오류 (${listRes.status}): ${listErr.error.message}`);
+      }
+    } else {
       const listData = await listRes.json();
       const models: Array<{ name: string; supportedGenerationMethods?: string[] }> = listData.models || [];
       const usable = models.filter((m) => m.supportedGenerationMethods?.includes('generateContent'));
@@ -213,18 +219,27 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
           usable[0];
 
         if (matched) {
-          const dynamicUrl = `https://generativelanguage.googleapis.com/v1beta/${matched.name}:generateContent?key=${apiKey}`;
+          const cleanModelPath = matched.name.startsWith('models/') ? matched.name : `models/${matched.name}`;
+          const dynamicUrl = `https://generativelanguage.googleapis.com/v1beta/${cleanModelPath}:generateContent?key=${apiKey}`;
           const dynRes = await sendPayload(dynamicUrl);
           if (dynRes.ok) {
             const dynData = await dynRes.json();
             const text = dynData.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) return text;
+          } else {
+            const dynErr = await dynRes.json().catch(() => ({}));
+            lastErrorMsg = dynErr.error?.message || lastErrorMsg;
           }
         }
+      } else {
+        throw new Error('해당 Google API 키에서 사용 가능한 텍스트 생성 모델이 없습니다. Google AI Studio 콘솔에서 키 권한을 확인해 주세요.');
       }
     }
   } catch (discoveryErr: any) {
-    console.warn('[Huber] Gemini dynamic model discovery failed:', discoveryErr);
+    if (discoveryErr.message && (discoveryErr.message.startsWith('Google API 오류') || discoveryErr.message.includes('사용 가능한'))) {
+      throw discoveryErr;
+    }
+    console.warn('[Huber] Gemini dynamic model discovery error:', discoveryErr);
   }
 
   throw new Error(`Gemini API 호출 실패: ${lastErrorMsg}`);

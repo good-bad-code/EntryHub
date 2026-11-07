@@ -76,6 +76,10 @@ export class WindowPostMessageEntryBridgeAdapter implements IEntryBridgeReposito
     return res;
   }
 
+  async extractAsset(type: AssetType): Promise<ExtractedAssetPayload> {
+    return this.extractCurrentAsset(type);
+  }
+
   async injectAsset(type: AssetType, data: Record<string, unknown>): Promise<boolean> {
     const res = await this.sendRequest<{ success: boolean }>('INJECT_ASSET_REQ', { type, data });
     return !!res?.success;

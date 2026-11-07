@@ -97,7 +97,12 @@ export function HuberTab({
     if (!bridgeAdapter) return;
     setIsContextLoading(true);
     try {
-      const res = await bridgeAdapter.extractAsset('OBJECT');
+      const res =
+        typeof (bridgeAdapter as any).extractCurrentAsset === 'function'
+          ? await (bridgeAdapter as any).extractCurrentAsset('OBJECT')
+          : typeof (bridgeAdapter as any).extractAsset === 'function'
+          ? await (bridgeAdapter as any).extractAsset('OBJECT')
+          : null;
       if (res && res.data) {
         const raw = res.data;
         const scriptData =
