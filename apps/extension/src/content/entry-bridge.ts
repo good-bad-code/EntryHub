@@ -1657,7 +1657,7 @@ function loadCodeToEntry(codeData: any) {
   }
 
   // 6. 블록 데이터 정규화 및 스레드 생성 (단독 필드/표현식 및 다중 블록 안전 주입)
-  let rawBlock = codeData.block || codeData.data || codeData;
+  let rawBlock = codeData.script || codeData.block || codeData.data || codeData;
   if (typeof rawBlock === 'string') {
     try {
       rawBlock = JSON.parse(rawBlock);

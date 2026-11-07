@@ -504,6 +504,20 @@ export function formatParamValue(param: any, ctx?: { pictures?: any[]; sounds?: 
   if (param === null || param === undefined) return '';
 
   if (typeof param === 'string') {
+    // 엔트리 키코드 숫자 문자열 → 한글 이름 변환
+    const KEY_CODE_MAP: Record<string, string> = {
+      '32': '스페이스',
+      '13': '엔터',
+      '37': '왼쪽 화살표', '38': '위쪽 화살표', '39': '오른쪽 화살표', '40': '아래쪽 화살표',
+      '48': '0', '49': '1', '50': '2', '51': '3', '52': '4',
+      '53': '5', '54': '6', '55': '7', '56': '8', '57': '9',
+      '65': 'a', '66': 'b', '67': 'c', '68': 'd', '69': 'e',
+      '70': 'f', '71': 'g', '72': 'h', '73': 'i', '74': 'j',
+      '75': 'k', '76': 'l', '77': 'm', '78': 'n', '79': 'o',
+      '80': 'p', '81': 'q', '82': 'r', '83': 's', '84': 't',
+      '85': 'u', '86': 'v', '87': 'w', '88': 'x', '89': 'y', '90': 'z',
+    };
+    if (KEY_CODE_MAP[param]) return KEY_CODE_MAP[param];
     return dropdownMap[param] || param;
   }
 
