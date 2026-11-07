@@ -45,8 +45,7 @@ export function VerificationModal({
     handledVerificationIds.add(verification.id);
 
     try {
-      const username = user.username || user.id || verification.entry_username || '';
-      const nickname = user.nickname || username || '엔트리사용자';
+      const nickname = user.nickname || '엔트리사용자';
       const entryUserId = user._id || user.id || null;
 
       // 회원가입 모드일 때 이미 존재하는 회원인지 사전 검증 (entry_user_id 기반으로만 체크)
@@ -68,12 +67,13 @@ export function VerificationModal({
         }
       }
 
+      // 엔트리 아이디(entry_username)는 절대 수집/저장하지 않음 (보안 및 개인정보 보호)
       const { error } = await supabase
         .from('entry_verifications')
         .update({
           status: 'VERIFIED',
           entry_user_id: entryUserId,
-          entry_username: username,
+          entry_username: null,
           nickname: nickname,
         })
         .eq('id', verification.id);
@@ -106,7 +106,7 @@ export function VerificationModal({
     }
   };
 
-  const displayName = user.nickname || user.username || verification.entry_username;
+  const displayName = user.nickname || '엔트리 사용자';
 
   // 제목 및 부제목 분기
   let title = '계정 인증 요청';
@@ -391,22 +391,39 @@ export function requestBridgeEntryUser() {
 }
 
 /**
- * 엔트리 페이지에서 현재 로그인된 유저 정보 감지 (__NEXT_DATA__ deep search 포함)
+ * 엔트리 페이지에서 현재 로그인된 유저 정보 감지
+ * (절대 타인/작품 제작자 정보를 오인식하지 않으며, 비로그인 상태를 최우선 확정합니다)
  */
 export function detectEntryUser(): DetectedEntryUser | null {
-  // 브릿지에서 Entry.user를 보낸 캐시가 있다면 최우선 반환
-  if (cachedBridgeUser && (cachedBridgeUser.username || cachedBridgeUser.nickname || cachedBridgeUser._id)) {
+  // 1. 화면 상단 네비게이션/헤더에 '로그인' 버튼 또는 /signin 링크가 존재하면 무조건 비로그인 상태로 확정!
+  try {
+    const loginElements = document.querySelectorAll(
+      'header a, header button, nav a, nav button, [class*="Header"] a, [class*="Header"] button, a[href*="/signin"], a[href*="/login"]'
+    );
+    for (const el of Array.from(loginElements)) {
+      const text = el.textContent?.trim() || '';
+      const href = el.getAttribute('href') || '';
+      if (
+        (text === '로그인' || text === '로그인 / 회원가입' || href.includes('/signin') || href.includes('/login')) &&
+        !text.includes('로그아웃')
+      ) {
+        cachedBridgeUser = null;
+        return null;
+      }
+    }
+  } catch {}
+
+  // 2. 브릿지 캐시 확인 (창작 워크스페이스인 경우)
+  if (cachedBridgeUser && (cachedBridgeUser.nickname || cachedBridgeUser._id)) {
     return cachedBridgeUser;
   }
   requestBridgeEntryUser();
 
   const isWorkspace = typeof window !== 'undefined' && window.location.pathname.startsWith('/ws');
 
-  // 1. 엔트리 작품 제작 페이지(/ws) 상단 바의 닉네임 감지 (헤더 우측 [WHBL], [니나노7777] 등)
-  // 메인 페이지(playentry.org)나 커뮤니티 페이지 등 일반 웹 페이지에서는 상단 GNB 메뉴(챌린지, 만들기 등)를 오인식하지 않도록 실행하지 않음
+  // 3. 엔트리 작품 제작 페이지(/ws) 상단 바의 닉네임 감지 (워크스페이스 전용)
   if (isWorkspace) {
     try {
-      // 툴바 아이콘 및 공통 텍스트 제외 단어
       const ignoreWords = [
         'file', 'save', 'help', 'print', 'undo', 'redo', '기본형', '실행', '장면',
         '로그인', '회원가입', '작품', '블록', '모양', '소리', '속성', '추가하기',
@@ -414,7 +431,9 @@ export function detectEntryUser(): DetectedEntryUser | null {
         '생각하기', '탐험하기', '교과서', '스토리', '도움말'
       ];
 
-      const myButtons = document.querySelectorAll('header button, header a, header span, .entryHeader button, .entryHeader a, .entryHeader span, [class*="Header"] button, [class*="Header"] a, [class*="Header"] span');
+      const myButtons = document.querySelectorAll(
+        'header button, header a, header span, .entryHeader button, .entryHeader a, .entryHeader span, [class*="Header"] button, [class*="Header"] a, [class*="Header"] span'
+      );
       for (const btn of Array.from(myButtons)) {
         const text = btn.textContent?.trim() || '';
         const lower = text.toLowerCase();
@@ -425,10 +444,8 @@ export function detectEntryUser(): DetectedEntryUser | null {
           !ignoreWords.some((w) => lower === w || lower.includes(w))
         ) {
           const rect = btn.getBoundingClientRect();
-          // 브라우저 최상단(y < 60) 우측(x > window.innerWidth * 0.55) 영역에 위치한 버튼/텍스트
           if (rect.top >= 0 && rect.top < 60 && rect.left > window.innerWidth * 0.55) {
             return {
-              username: text,
               nickname: text,
               id: text,
             };
@@ -438,72 +455,24 @@ export function detectEntryUser(): DetectedEntryUser | null {
     } catch {}
   }
 
-  // 2. 화면 상단에 명백한 '로그인' 버튼 또는 링크가 존재하는 경우에만 비로그인 상태로 확정
-  try {
-    const loginLinks = document.querySelectorAll('a[href*="/signin"], a[href*="/login"], button');
-    for (const el of Array.from(loginLinks)) {
-      const text = el.textContent?.trim();
-      const href = el.getAttribute('href') || '';
-      if ((text === '로그인' || text === '로그인 / 회원가입' || href.includes('/signin')) && !text.includes('로그아웃')) {
-        const rect = el.getBoundingClientRect();
-        if (rect.top >= 0 && rect.top < 80 && rect.left > window.innerWidth * 0.5) {
-          const hasMyMenu = document.querySelector('a[href*="/profile/"], .my-menu, [class*="Profile"], [class*="MyMenu"]');
-          if (!hasMyMenu) {
-            return null;
-          }
-        }
-      }
-    }
-  } catch { }
-
-  // 3. __NEXT_DATA__ 에서 실제 로그인 유저 객체 추출 (props.pageProps.user 등 정확한 세션 검사)
+  // 4. __NEXT_DATA__ 에서 최상위 세션 유저 객체만 확인 (작품 제작자나 타인 정보 혼동 방지)
   try {
     const nextDataEl = document.getElementById('__NEXT_DATA__');
     if (nextDataEl?.textContent) {
       const nextData = JSON.parse(nextDataEl.textContent);
 
-      // Next.js 페이지 props의 user 객체 우선 확인
+      // 공식 세션 유저 경로만 안전하게 확인 (deep search 절대 금지)
       const pageUser =
         nextData.props?.pageProps?.user ||
         nextData.props?.pageProps?.initialState?.user ||
-        nextData.props?.pageProps?.session?.user;
+        nextData.props?.pageProps?.session?.user ||
+        nextData.props?.pageProps?.initialState?.auth?.user;
 
-      if (pageUser && (pageUser.username || pageUser.nickname) && pageUser._id) {
+      if (pageUser && pageUser._id && pageUser.nickname) {
         return {
-          username: pageUser.username || pageUser.id,
           nickname: pageUser.nickname,
-          id: pageUser.id || pageUser.username,
+          id: pageUser._id,
           _id: pageUser._id,
-        };
-      }
-
-      // deepFind: 단, 작품 제작자(author)나 타인 정보와 혼동되지 않도록 __typename 또는 session/auth context 확인
-      const deepFindUser = (obj: any, depth = 0): any => {
-        if (!obj || typeof obj !== 'object' || depth > 7) return null;
-        if (
-          obj._id &&
-          (obj.username || obj.nickname) &&
-          (obj.role || obj.status || obj.email || obj.__typename === 'User') &&
-          !obj.project && !obj.author // 작품/에셋 정보 제외
-        ) {
-          return obj;
-        }
-        for (const key in obj) {
-          if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            const found = deepFindUser(obj[key], depth + 1);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-
-      const foundUser = deepFindUser(nextData.props?.pageProps);
-      if (foundUser) {
-        return {
-          username: foundUser.username || foundUser.id,
-          nickname: foundUser.nickname,
-          id: foundUser.id || foundUser.username,
-          _id: foundUser._id,
         };
       }
     }
@@ -511,37 +480,17 @@ export function detectEntryUser(): DetectedEntryUser | null {
     console.warn('[Entry-Hub] __NEXT_DATA__ user detection error:', e);
   }
 
-  // 2. window.Entry?.user 객체 확인
+  // 5. window.Entry?.user 객체 확인 (워크스페이스 에디터)
   try {
     const entryUser = (window as any).Entry?.user;
-    if (entryUser && (entryUser.username || entryUser.nickname) && entryUser._id) {
+    if (entryUser && entryUser._id && entryUser.nickname) {
       return {
-        username: entryUser.username,
         nickname: entryUser.nickname,
-        id: entryUser.id || entryUser.username,
+        id: entryUser._id,
         _id: entryUser._id,
       };
     }
-  } catch { }
-
-  // 3. 네비게이션 바 / 헤더의 내 프로필 링크 (/profile/{myId}) 확인
-  try {
-    const myProfileEl = document.querySelector('header a[href*="/profile/"], nav a[href*="/profile/"], a[href*="/profile/"]');
-    if (myProfileEl) {
-      const href = myProfileEl.getAttribute('href') || '';
-      const match = href.match(/\/profile\/([a-zA-Z0-9_\uac00-\ud7a3]+)/);
-      if (match && match[1]) {
-        // 프로필 텍스트 또는 이미지 alt 확인
-        const imgEl = myProfileEl.querySelector('img');
-        const detectedNick = myProfileEl.textContent?.trim() || imgEl?.getAttribute('alt') || match[1];
-        return {
-          username: match[1],
-          nickname: detectedNick,
-          id: match[1],
-        };
-      }
-    }
-  } catch { }
+  } catch {}
 
   return null;
 }
@@ -568,9 +517,9 @@ export async function checkAndShowVerificationModal() {
     return;
   }
 
-  // 매칭 후보군 (고유 _id, 아이디, 닉네임, 'ALL')
+  // 매칭 후보군 (고유 _id, 닉네임, 'ALL') - 엔트리 아이디(username)는 절대 수집/사용하지 않음
   const candidateList = Array.from(
-    new Set([user._id, user.id, user.username, user.nickname, 'ALL'].filter(Boolean) as string[])
+    new Set([user._id, user.id, user.nickname, 'ALL'].filter(Boolean) as string[])
   );
 
   if (candidateList.length === 0) return;
