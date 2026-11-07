@@ -119,10 +119,9 @@ ${JSON.stringify(context.currentScript || [], null, 2)}`;
   return parseHuberResponse(rawResponseText);
 }
 
-// 1. Google Gemini 호출 (동적 모델 발견 및 자동 fallback 탑재)
+// 1. Google Gemini 호출 (동적 모델 발견 및 최신 모델 자동 전환 탑재)
 async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
   const isPro = modelId === 'gemini-1.5-pro';
-  const is20Flash = modelId === 'gemini-2.0-flash';
 
   const sendPayload = (url: string) =>
     fetch(url, {
@@ -137,26 +136,22 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
       }),
     });
 
-  // 1단계: 지정된 모델 우선 엔드포인트 목록
+  // 1단계: 최신 정식 모델 우선 엔드포인트 목록
   let candidateUrls: string[] = [];
 
-  if (is20Flash) {
-    candidateUrls = [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-    ];
-  } else if (isPro) {
+  if (isPro) {
     candidateUrls = [
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp-02-05:generateContent?key=${apiKey}`,
     ];
   } else {
-    // gemini-1.5-flash
+    // Flash 계열 (구글 최신 권장 모델 gemini-3.8-flash 최우선 호출)
     candidateUrls = [
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
     ];
@@ -187,6 +182,22 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
       if (res.status === 429) {
         throw new Error('Gemini API 호출 한도(Quota)를 초과했습니다. 잠시 후 다시 시도해 주세요.');
       }
+
+      // 구글이 특정 모델을 직접 권장(예: use models/gemini-3.8-flash)한 경우 즉시 해당 모델로 호출
+      const recMatch = lastErrorMsg.match(/models\/([a-zA-Z0-9_\-\.]+)/g);
+      if (recMatch && recMatch.length > 0) {
+        for (const matchedName of recMatch) {
+          const recUrl = `https://generativelanguage.googleapis.com/v1beta/${matchedName}:generateContent?key=${apiKey}`;
+          try {
+            const recRes = await sendPayload(recUrl);
+            if (recRes.ok) {
+              const recData = await recRes.json();
+              const text = recData.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) return text;
+            }
+          } catch {}
+        }
+      }
     } catch (e: any) {
       if (e.message && (e.message.includes('API 키') || e.message.includes('한도') || e.message.includes('권한'))) {
         throw e;
@@ -195,7 +206,7 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
     }
   }
 
-  // 2단계: 후보 URL이 모두 404를 반환한 경우, Google ListModels API로 계정 지원 모델 동적 탐색
+  // 2단계: 후보 URL이 모두 실패한 경우, Google ListModels API로 계정 지원 모델 동적 탐색
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     if (!listRes.ok) {
@@ -213,8 +224,9 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
         // Flash 또는 Pro 계열 우선 매칭
         const matched =
           (isPro ? usable.find((m) => m.name.includes('pro')) : null) ||
+          usable.find((m) => m.name.includes('3.8-flash')) ||
+          usable.find((m) => m.name.includes('3.')) ||
           usable.find((m) => m.name.includes('2.0-flash')) ||
-          usable.find((m) => m.name.includes('1.5-flash')) ||
           usable.find((m) => m.name.includes('flash')) ||
           usable[0];
 

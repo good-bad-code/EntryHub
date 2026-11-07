@@ -4,8 +4,9 @@
  */
 
 export type HuberModelId =
-  | 'gemini-1.5-flash'
+  | 'gemini-3.8-flash'
   | 'gemini-2.0-flash'
+  | 'gemini-1.5-flash'
   | 'gemini-1.5-pro'
   | 'gpt-4o-mini'
   | 'gpt-4o'
@@ -25,18 +26,25 @@ export interface HuberModelInfo {
 
 export const HUBER_MODELS: HuberModelInfo[] = [
   {
-    id: 'gemini-1.5-flash',
-    name: 'Gemini 1.5 Flash (권장)',
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash (최신/권장)',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '빠르고 경제적이며 엔트리 블록 생성에 최적화',
+    description: '구글 최신 차세대 플래시 모델로 빠르고 정확한 블록 생성',
   },
   {
     id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash (최신)',
+    name: 'Gemini 2.0 Flash',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '구글 차세대 초고속 플래시 모델',
+    description: '구글 초고속 멀티모달 플래시 모델',
+  },
+  {
+    id: 'gemini-1.5-flash',
+    name: 'Gemini 1.5 Flash',
+    provider: 'gemini',
+    providerName: 'Google Gemini',
+    description: '안정적인 엔트리 블록 생성',
   },
   {
     id: 'gemini-1.5-pro',
@@ -99,7 +107,7 @@ const STORAGE_KEY = 'eh_huber_settings_v1';
 export function getHuberSettings(): HuberSettings {
   const defaults: HuberSettings = {
     enabled: true,
-    selectedModel: 'gemini-1.5-flash',
+    selectedModel: 'gemini-3.8-flash',
     apiKeys: {},
   };
 
@@ -109,7 +117,7 @@ export function getHuberSettings(): HuberSettings {
       const parsed = JSON.parse(raw);
       return {
         enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
-        selectedModel: parsed.selectedModel || 'gemini-1.5-flash',
+        selectedModel: parsed.selectedModel || 'gemini-3.8-flash',
         apiKeys: parsed.apiKeys || {},
       };
     }
