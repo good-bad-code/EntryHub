@@ -425,7 +425,7 @@ export default function LoginPage() {
                     type="text"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="아이디 입력 (소셜 회원은 아이디@entry)"
+                    placeholder="설정한 아이디 입력"
                     disabled={isLoading}
                     style={{
                       width: '100%',

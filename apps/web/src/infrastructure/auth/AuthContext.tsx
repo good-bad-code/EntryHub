@@ -138,88 +138,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (identifier: string, pass: string) => {
     const rawId = identifier.trim();
     if (!rawId) {
-      return { error: new Error('엔트리 아이디를 입력해 주세요.') };
+      return { error: new Error('아이디를 입력해 주세요.') };
     }
 
-    const cleanId = rawId.toLowerCase();
-    let targetEmail = `${cleanId}@entry-hub.local`;
-
-    // 1. RPC 함수로 아이디에 매핑된 실제 auth 이메일 조회 시도
+    // RPC로 custom_id → 가상 이메일 조회 (서버에서만 처리, 클라이언트에 이메일 형식 노출 없음)
     try {
       const { data: rpcEmail, error: rpcErr } = await supabase.rpc('get_login_email_by_identifier', {
         p_identifier: rawId,
       });
       if (!rpcErr && rpcEmail) {
-        targetEmail = rpcEmail;
+        const { error } = await supabase.auth.signInWithPassword({
+          email: rpcEmail,
+          password: pass,
+        });
+        if (error) {
+          return {
+            error: new Error(
+              error.message === 'Invalid login credentials'
+                ? '아이디 또는 비밀번호가 올바르지 않습니다.'
+                : error.message
+            ),
+          };
+        }
+        return { error: null };
       }
     } catch {
-      // RPC 미배포 또는 예외 시 클라이언트 폴백 진행
+      // RPC 미배포 또는 예외 시 아래 fallback 진행
     }
 
-    // 2. 만약 targetEmail이 가상 이메일 기본값인 경우, public.users 검색으로 실제 이메일 보완
-    if (targetEmail === `${cleanId}@entry-hub.local` && !rawId.includes('@')) {
-      try {
-        const { data: userRow } = await supabase
-          .from('users')
-          .select('id, email, entry_username, nickname')
-          .or(`entry_username.ilike.${rawId},nickname.ilike.${rawId}`)
-          .limit(1)
-          .maybeSingle();
-
-        if (userRow?.email) {
-          targetEmail = userRow.email;
-        }
-      } catch (err) {
-        console.warn('User lookup warning:', err);
-      }
-    }
-
-    // 3. 1차 로그인 시도
-    let { data: authData, error } = await supabase.auth.signInWithPassword({
-      email: targetEmail,
-      password: pass,
-    });
-
-    // 4. myentrymy 관리자 계정 특별 폴백 (과거 learn.code.ing.ing@gmail.com 계정 매핑)
-    if (error && cleanId === 'myentrymy' && targetEmail !== 'learn.code.ing.ing@gmail.com') {
-      const fallbackResult = await supabase.auth.signInWithPassword({
-        email: 'learn.code.ing.ing@gmail.com',
-        password: pass,
-      });
-
-      if (!fallbackResult.error && fallbackResult.data.user) {
-        // 로그인 성공! entry_username = 'myentrymy' 및 ADMIN 권한 즉시 동기화
-        await supabase.from('users').upsert({
-          id: fallbackResult.data.user.id,
-          entry_username: 'myentrymy',
-          nickname: 'myentrymy',
-          role: 'ADMIN',
-        }, { onConflict: 'id' });
-
-        return { error: null };
-      }
-    }
-
-    // 5. 사용자가 실수로 이메일(@ 포함)을 직접 입력하여 실패한 경우
-    if (error && rawId.includes('@')) {
-      const prefixId = rawId.split('@')[0];
-      const retryVirtual = await supabase.auth.signInWithPassword({
-        email: `${prefixId.toLowerCase()}@entry-hub.local`,
-        password: pass,
-      });
-      if (!retryVirtual.error) {
-        return { error: null };
-      }
-    }
-
-    if (error) {
-      const msg = error.message === 'Invalid login credentials'
-        ? '아이디 또는 비밀번호가 올바르지 않습니다.'
-        : error.message;
-      return { error: new Error(msg) };
-    }
-
-    return { error: null };
+    return { error: new Error('아이디 또는 비밀번호가 올바르지 않습니다.') };
   };
 
   const signUp = async (

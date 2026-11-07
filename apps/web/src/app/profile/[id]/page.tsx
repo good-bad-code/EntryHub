@@ -134,7 +134,7 @@ export default function ProfilePage() {
           setEditNickname(data.nickname || '');
           setEditEntryUrl(data.entry_profile_url || '');
           setSelectedAvatar(data.avatar_url || DEFAULT_AVATARS[0]);
-          setCustomIdInput(data.custom_id || data.entry_username || '');
+          setCustomIdInput(data.custom_id || '');
         } else {
           const fallback: UserProfile = {
             id: profileId,
@@ -292,19 +292,19 @@ export default function ProfilePage() {
     }
   };
 
-  // 엔트리 인증으로 닉네임 / 아이디 자동 동기화 시작
-  const handleFetchEntryId = async () => {
+  // 엔트리 계정 연동 변경 (entry_user_id + nickname 갱신)
+  const handleChangeEntryAccount = async () => {
     setSecurityError(null);
     setIsVerifyingEntryId(true);
 
     try {
-      const code = `EH-ID-${Math.floor(1000 + Math.random() * 9000)}`;
+      const code = `EH-CHG-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const { data, error } = await supabase
         .from('entry_verifications')
         .insert({
           code,
-          entry_username: profileData?.entry_username || profileData?.entry_user_id || 'ALL',
+          entry_username: 'ALL',
           verification_type: 'LINK_ID',
           status: 'PENDING',
         })
@@ -326,7 +326,7 @@ export default function ProfilePage() {
         try {
           const { data: pollData } = await supabase
             .from('entry_verifications')
-            .select('status, entry_username, entry_user_id, nickname')
+            .select('status, entry_user_id, nickname')
             .eq('id', vId)
             .single();
 
@@ -334,30 +334,46 @@ export default function ProfilePage() {
             if (idPollingRef.current) clearInterval(idPollingRef.current);
             setIsVerifyingEntryId(false);
 
-            const fetchedUsername = pollData.entry_username || '';
-            const fetchedNickname = pollData.nickname || fetchedUsername;
-            const isSocialUser =
-              /^(naver|whale|whales)[-_]/i.test(fetchedUsername) || fetchedUsername.includes('@');
+            const fetchedEntryUserId = pollData.entry_user_id || '';
+            const fetchedNickname = pollData.nickname || '엔트리사용자';
 
-            // 닉네임 동기화 저장
-            if (fetchedNickname && user?.id) {
-              await supabase
-                .from('users')
-                .update({ nickname: fetchedNickname })
-                .eq('id', user.id);
-              setEditNickname(fetchedNickname);
-              setProfileData((prev) => (prev ? { ...prev, nickname: fetchedNickname } : null));
-              await refreshProfile();
+            if (!fetchedEntryUserId) {
+              setSecurityError('엔트리 고유번호를 가져오지 못했습니다. 다시 시도해 주세요.');
+              return;
             }
 
-            if (isSocialUser) {
-              setCustomIdInput('');
-              alert(
-                `엔트리 계정(${fetchedNickname})과 연동되었습니다.\n소셜 로그인 계정이므로 원하시는 아이디를 입력하시면 뒤에 자동으로 '@entry'가 부여됩니다.`
+            // DB에서 중복 체크 (다른 계정이 이미 사용 중인 entry_user_id인지 확인)
+            const { data: dupCheck } = await supabase
+              .from('users')
+              .select('id')
+              .eq('entry_user_id', fetchedEntryUserId)
+              .neq('id', user!.id)
+              .maybeSingle();
+
+            if (dupCheck) {
+              setSecurityError('이미 다른 계정에 연동된 엔트리 계정입니다.');
+              return;
+            }
+
+            // entry_user_id, nickname 갱신 (entry_username은 저장하지 않음)
+            if (user?.id) {
+              await supabase
+                .from('users')
+                .update({
+                  entry_user_id: fetchedEntryUserId,
+                  nickname: fetchedNickname,
+                })
+                .eq('id', user.id);
+
+              setProfileData((prev) =>
+                prev ? { ...prev, entry_user_id: fetchedEntryUserId, nickname: fetchedNickname } : null
               );
-            } else {
-              setCustomIdInput(fetchedUsername);
-              alert(`엔트리 닉네임(${fetchedNickname})과 아이디(${fetchedUsername})를 성공적으로 가져왔습니다!`);
+              setEditNickname(fetchedNickname);
+              await refreshProfile();
+
+              alert(
+                `엔트리 계정이 변경되었습니다.\n닉네임: ${fetchedNickname}\n\n변경 사항을 완전히 적용하려면 다시 로그인해 주세요.`
+              );
             }
           } else if (pollData?.status === 'EXPIRED') {
             if (idPollingRef.current) clearInterval(idPollingRef.current);
@@ -365,7 +381,7 @@ export default function ProfilePage() {
             setSecurityError('엔트리 인증이 취소되었습니다.');
           }
         } catch (e) {
-          console.warn('ID polling error:', e);
+          console.warn('Account change polling error:', e);
         }
       }, 2000);
     } catch (err: any) {
@@ -394,19 +410,10 @@ export default function ProfilePage() {
 
     setIsSecuritySaving(true);
     try {
-      let finalId = customIdInput.trim();
-      const isSocial =
-        profileData?.is_social ||
-        (profileData?.entry_username && /^(naver|whale|whales)[-_]/i.test(profileData.entry_username));
-
-      if (isSocial && finalId) {
-        if (!finalId.endsWith('@entry')) {
-          finalId = `${finalId}@entry`;
-        }
-      }
+      const finalId = customIdInput.trim() || undefined;
 
       const { error, customId } = await setCredentials(
-        finalId || undefined,
+        finalId,
         passwordInput.trim() || undefined
       );
 
@@ -450,10 +457,8 @@ export default function ProfilePage() {
     );
   }
 
-  // 소셜 계정 여부 판단
-  const isSocial =
-    profileData?.is_social ||
-    (profileData?.entry_username && /^(naver|whale|whales)[-_]/i.test(profileData.entry_username));
+  // 소셜 계정 여부 판단 (is_social 필드만 사용, entry_username 의존 제거)
+  const isSocial = profileData?.is_social ?? false;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: colors.canvasSoft }}>
@@ -805,94 +810,76 @@ export default function ProfilePage() {
 
               {/* 1. 아이디 설정 */}
               <div style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: colors.ink }}>
-                    로그인 아이디
-                  </label>
-                  {!isSocial && (
-                    <button
-                      type="button"
-                      onClick={handleFetchEntryId}
-                      disabled={isVerifyingEntryId}
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        border: `1px solid ${colors.primary}`,
-                        backgroundColor: `${colors.primary}10`,
-                        color: colors.primary,
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        cursor: isVerifyingEntryId ? 'not-allowed' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                    >
-                      {isVerifyingEntryId ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
-                      <span>엔트리 인증으로 가져오기</span>
-                    </button>
-                  )}
-                </div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: colors.ink, marginBottom: '6px' }}>
+                  로그인 아이디
+                </label>
+                <input
+                  type="text"
+                  value={customIdInput}
+                  onChange={(e) => setCustomIdInput(e.target.value.trim())}
+                  placeholder="원하는 아이디 입력 (영문, 숫자, 언더스코어)"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${colors.hairlineStrong}`,
+                    backgroundColor: colors.canvasSoft,
+                    color: colors.ink,
+                    fontSize: '14px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <p style={{ margin: '6px 0 0', fontSize: '11px', color: colors.mute, lineHeight: 1.4 }}>
+                  아이디를 설정하면 엔트리 인증 없이도 아이디+비밀번호로 로그인할 수 있습니다.
+                </p>
+              </div>
 
-                {isSocial ? (
+              {/* 연동된 엔트리 계정 정보 */}
+              <div
+                style={{
+                  marginBottom: '20px',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  backgroundColor: colors.canvasSoft2,
+                  border: `1px solid ${colors.hairline}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-                      <input
-                        type="text"
-                        value={customIdInput.replace(/@entry$/, '')}
-                        onChange={(e) => setCustomIdInput(e.target.value.replace(/@entry$/, ''))}
-                        placeholder="원하는 아이디 입력"
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          borderRadius: '8px',
-                          border: `1px solid ${colors.hairlineStrong}`,
-                          fontSize: '14px',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                      <span
-                        style={{
-                          position: 'absolute',
-                          right: '12px',
-                          fontSize: '13px',
-                          fontWeight: 700,
-                          color: colors.primary,
-                        }}
-                      >
-                        @entry
-                      </span>
+                    <div style={{ fontSize: '11px', color: colors.mute, marginBottom: '2px' }}>연동된 엔트리 계정</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: colors.ink }}>
+                      {profileData?.nickname || '(닉네임 없음)'}
                     </div>
-                    <p style={{ margin: '6px 0 0', fontSize: '11px', color: colors.mute, lineHeight: 1.4 }}>
-                      소셜(네이버/웨일 등) 로그인 계정은 아이디 뒤에 <strong>@entry</strong>가 자동으로 부여됩니다.
-                    </p>
+                    {profileData?.entry_user_id && (
+                      <div style={{ fontSize: '10px', color: colors.mute, marginTop: '2px' }}>
+                        고유번호: {profileData.entry_user_id.slice(0, 12)}...
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div>
-                    <input
-                      type="text"
-                      value={customIdInput}
-                      readOnly
-                      placeholder="우측 [엔트리 인증으로 가져오기] 클릭"
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        border: `1px solid ${colors.hairlineStrong}`,
-                        backgroundColor: colors.canvasSoft2,
-                        color: colors.ink,
-                        fontSize: '14px',
-                        outline: 'none',
-                        boxSizing: 'border-box',
-                        cursor: 'not-allowed',
-                      }}
-                    />
-                    <p style={{ margin: '6px 0 0', fontSize: '11px', color: colors.mute }}>
-                      일반 계정은 본인 확인을 위해 엔트리 인증을 통해서만 아이디가 자동 등록됩니다.
-                    </p>
-                  </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={handleChangeEntryAccount}
+                    disabled={isVerifyingEntryId}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      border: `1px solid ${colors.hairlineStrong}`,
+                      backgroundColor: colors.canvas,
+                      color: colors.ink,
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: isVerifyingEntryId ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isVerifyingEntryId ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                    <span>다른 계정으로 변경</span>
+                  </button>
+                </div>
               </div>
 
               {/* 2. 비밀번호 설정 */}
@@ -1085,7 +1072,7 @@ export default function ProfilePage() {
                   </label>
                   <button
                     type="button"
-                    onClick={handleFetchEntryId}
+                    onClick={handleChangeEntryAccount}
                     disabled={isVerifyingEntryId}
                     style={{
                       padding: '3px 8px',
@@ -1101,7 +1088,7 @@ export default function ProfilePage() {
                       gap: '4px',
                     }}
                   >
-                    {isVerifyingEntryId ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
+                    {isVerifyingEntryId ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
                     <span>엔트리 인증으로 닉네임 동기화</span>
                   </button>
                 </div>

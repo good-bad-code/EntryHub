@@ -49,23 +49,22 @@ export function VerificationModal({
       const nickname = user.nickname || username || '엔트리사용자';
       const entryUserId = user._id || user.id || null;
 
-      // 회원가입 모드일 때 이미 존재하는 회원인지 사전 검증
+      // 회원가입 모드일 때 이미 존재하는 회원인지 사전 검증 (entry_user_id 기반으로만 체크)
       if (isRegister) {
-        let existingUserQuery = supabase.from('users').select('id, nickname').limit(1);
         if (entryUserId) {
-          existingUserQuery = existingUserQuery.or(`entry_user_id.eq.${entryUserId},entry_username.eq.${username}`);
-        } else {
-          existingUserQuery = existingUserQuery.eq('entry_username', username);
-        }
+          const { data: existingUser } = await supabase
+            .from('users')
+            .select('id, nickname')
+            .eq('entry_user_id', entryUserId)
+            .limit(1);
 
-        const { data: existingUser } = await existingUserQuery;
-        if (existingUser && existingUser.length > 0) {
-          alert('이미 가입된 엔트리 계정입니다.\n로그인 페이지에서 [엔트리 인증 로그인]을 이용해 주세요.');
-          setLoading(false);
-          // 인증 레코드를 EXPIRED 처리하고 팝업 닫기
-          await supabase.from('entry_verifications').update({ status: 'EXPIRED' }).eq('id', verification.id);
-          onClose();
-          return;
+          if (existingUser && existingUser.length > 0) {
+            alert('이미 가입된 엔트리 계정입니다.\n로그인 페이지에서 [엔트리 인증 로그인]을 이용해 주세요.');
+            setLoading(false);
+            await supabase.from('entry_verifications').update({ status: 'EXPIRED' }).eq('id', verification.id);
+            onClose();
+            return;
+          }
         }
       }
 
