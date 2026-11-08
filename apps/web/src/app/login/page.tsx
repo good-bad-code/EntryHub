@@ -133,12 +133,27 @@ export default function LoginPage() {
       }
 
       if (data.email && data.temp_password) {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({
+        let { error: signInErr } = await supabase.auth.signInWithPassword({
           email: data.email,
           password: data.temp_password,
         });
 
+        // Database error querying schema 발생 시 스키마 자동 복구 RPC 1회 시도 후 재로그인
+        if (signInErr && signInErr.message?.toLowerCase().includes('schema')) {
+          try {
+            await supabase.rpc('repair_auth_user_schema', { p_email: data.email });
+            const retryRes = await supabase.auth.signInWithPassword({
+              email: data.email,
+              password: data.temp_password,
+            });
+            signInErr = retryRes.error;
+          } catch {}
+        }
+
         if (signInErr) {
+          if (signInErr.message?.toLowerCase().includes('schema')) {
+            throw new Error('Supabase 스키마 오류가 감지되었습니다. Supabase 대시보드에서 최신 migration SQL을 실행해 주세요.');
+          }
           throw signInErr;
         }
 

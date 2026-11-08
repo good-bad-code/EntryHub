@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Upload, Code2, Box, Layers, Loader2, CheckCircle2, AlertTriangle, LogIn, Tag, ShieldCheck, Award } from 'lucide-react';
-import { colors } from '@entry-hub/shared';
+import { colors, filterFunctionsForBlock } from '@entry-hub/shared';
 import { WindowPostMessageEntryBridgeAdapter } from '../../adapters/bridge/WindowPostMessageEntryBridgeAdapter';
 import { AssetType } from '@entry-hub/core';
 import { supabase } from '../../infrastructure/supabase/client';
@@ -271,7 +271,7 @@ export function UploadModal({
             id: currentUser.id,
             nickname: authorName,
             entry_username: currentUser.entry_username || authorName,
-            role: (currentUser.entry_username === 'myentrymy' || currentUser.role === 'ADMIN' || currentUser.email === 'myentrymy@entry-hub.local') ? 'ADMIN' : 'USER',
+            role: (currentUser.entry_user_id === '6a17db19865137773fb9d8c9' || currentUser.entry_username === 'myentrymy' || currentUser.role === 'ADMIN' || currentUser.email === 'entry_6a17db19865137773fb9d8c9@entry-hub.local') ? 'ADMIN' : 'USER',
           },
           { onConflict: 'id' }
         );
@@ -304,6 +304,15 @@ export function UploadModal({
             finalData.availableBlocks[selectedBlockIndex]
           ) {
             finalData.block = finalData.availableBlocks[selectedBlockIndex].blockJson;
+            finalData.functions = filterFunctionsForBlock(
+              finalData.block,
+              extractedData.data.functions || []
+            );
+          } else if (extractedData.type === 'CODE') {
+            finalData.functions = filterFunctionsForBlock(
+              finalData.block,
+              extractedData.data.functions || []
+            );
           }
           updatePayload.data = finalData;
           updatePayload.type = selectedType;
@@ -340,6 +349,15 @@ export function UploadModal({
           finalData.availableBlocks[selectedBlockIndex]
         ) {
           finalData.block = finalData.availableBlocks[selectedBlockIndex].blockJson;
+          finalData.functions = filterFunctionsForBlock(
+            finalData.block,
+            extractedData.data.functions || []
+          );
+        } else if (extractedData.type === 'CODE') {
+          finalData.functions = filterFunctionsForBlock(
+            finalData.block,
+            extractedData.data.functions || []
+          );
         }
 
         const payload: Record<string, any> = {

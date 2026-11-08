@@ -57,11 +57,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         const userProf = data as UserProfile;
         const isMaster =
+          (userProf.entry_user_id === '6a17db19865137773fb9d8c9') ||
           (userProf.entry_username || '').toLowerCase() === 'myentrymy' ||
           (userProf.nickname || '').toLowerCase() === 'myentrymy' ||
+          (email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' ||
           (email || '').toLowerCase() === 'myentrymy@entry-hub.local';
 
-        // myentrymy 유저라면 ADMIN 권한 자동 부여
+        // 관리자 유저라면 ADMIN 권한 자동 부여
         if (isMaster && userProf.role !== 'ADMIN') {
           await supabase.from('users').update({ role: 'ADMIN' }).eq('id', userId);
           userProf.role = 'ADMIN';
@@ -75,8 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setProfile(userProf);
       } else {
-        const isMaster = (email || '').toLowerCase().includes('myentrymy');
-        const fallbackUsername = email ? email.split('@')[0] : '사용자';
+        const isMaster = (email || '').toLowerCase().includes('6a17db19865137773fb9d8c9') || (email || '').toLowerCase().includes('myentrymy');
+        const fallbackUsername = (email && !email.startsWith('entry_')) ? email.split('@')[0] : '엔트리 사용자';
 
         // 프로필 테이블이 아직 없거나 레코드가 없을 때 기본 프로필 설정
         setProfile({
@@ -96,8 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.warn('Profile fetch exception:', e);
-      const isMaster = (email || '').toLowerCase().includes('myentrymy');
-      const fallbackUsername = email ? email.split('@')[0] : '사용자';
+      const isMaster = (email || '').toLowerCase().includes('6a17db19865137773fb9d8c9') || (email || '').toLowerCase().includes('myentrymy');
+      const fallbackUsername = (email && !email.startsWith('entry_')) ? email.split('@')[0] : '엔트리 사용자';
       setProfile({
         id: userId,
         nickname: fallbackUsername,
@@ -346,8 +348,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin =
     profile?.role === 'ADMIN' ||
+    profile?.entry_user_id === '6a17db19865137773fb9d8c9' ||
     (profile?.entry_username || '').toLowerCase() === 'myentrymy' ||
     (profile?.nickname || '').toLowerCase() === 'myentrymy' ||
+    (user?.email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' ||
     (user?.email || '').toLowerCase() === 'myentrymy@entry-hub.local';
 
   return (

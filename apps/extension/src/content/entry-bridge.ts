@@ -4,6 +4,7 @@ import {
   ExtractAssetPayload,
   InjectAssetPayload,
 } from '../protocol';
+import { filterFunctionsForBlock, extractFunctionNameFromDef } from '@entry-hub/shared';
 
 declare global {
   interface Window {
@@ -385,10 +386,41 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       targetBlock = Entry.playground.blockMenu.lastSelectedBlock;
     }
 
-    const threads = Entry.playground?.object?.script?.getThreads?.() || [];
+    // 현재 워크스페이스 보드, 메인 워크스페이스, 오버레이 보드(함수 편집 창), 또는 선택된 오브젝트에서 스레드 6중 다각도 수집
+    const ws = typeof Entry.getMainWS === 'function' ? Entry.getMainWS() : (Entry.playground?.mainWorkspace || null);
+    const currentLiveObj = Entry.playground?.object || Entry.container?.selectedObject;
+
+    let threads: any[] = [];
+    if (ws?.board?.code?.getThreads) {
+      threads = ws.board.code.getThreads() || [];
+    }
+    if (threads.length === 0 && Entry.playground?.mainWorkspace?.board?.code?.getThreads) {
+      threads = Entry.playground.mainWorkspace.board.code.getThreads() || [];
+    }
+    if (threads.length === 0 && ws?.overlayBoard?.code?.getThreads) {
+      threads = ws.overlayBoard.code.getThreads() || [];
+    }
+    if (threads.length === 0 && currentLiveObj?.script?.getThreads) {
+      threads = currentLiveObj.script.getThreads() || [];
+    }
+    if (threads.length === 0 && Entry.playground?.board?.code?.getThreads) {
+      threads = Entry.playground.board.code.getThreads() || [];
+    }
+    if (threads.length === 0 && typeof Entry.container?.getAllObjects === 'function') {
+      const allObjs = Entry.container.getAllObjects() || [];
+      for (const obj of allObjs) {
+        if (obj?.script?.getThreads) {
+          const tList = obj.script.getThreads() || [];
+          if (tList.length > 0) {
+            threads = tList;
+            break;
+          }
+        }
+      }
+    }
 
     // 현재 오브젝트에 존재하는 모든 스레드(블록 묶음) 리스트 구성
-    const availableBlocks = threads
+    let availableBlocks = threads
       .map((t: any, index: number) => {
         const blocks = t.getBlocks?.() || [];
         const rootBlock = blocks[0];
@@ -397,6 +429,8 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
         const blockCount = blocks.length;
         const displayName = getEntryBlockTitle(rootBlock);
         const isTarget = targetBlock ? (rootBlock === targetBlock || targetBlock.getThread?.() === t) : false;
+        // 각 스레드 블록별로 실제로 참조하는 함수만 전이적으로 선별
+        const blockFunctions = filterFunctionsForBlock(blockJson, deps.functions);
         return {
           index,
           id: rootBlock.id || String(index),
@@ -404,17 +438,53 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
           title: displayName,
           blockCount,
           blockJson,
+          functions: blockFunctions,
           isSelected: isTarget,
         };
       })
       .filter(Boolean);
 
+    // [강력한 폴백] 만약 라이브 스레드 수집에 실패했을 경우 projectData에서 스레드 복원
+    if (availableBlocks.length === 0 && Array.isArray(projectData.objects)) {
+      const targetObj = (currentLiveObj && projectData.objects.find((o: any) => o.id === (currentLiveObj.id || currentLiveObj.id_))) || projectData.objects[0];
+      if (targetObj) {
+        let rawScript = targetObj.script;
+        if (typeof rawScript === 'string') {
+          try { rawScript = JSON.parse(rawScript); } catch { rawScript = []; }
+        }
+        if (Array.isArray(rawScript) && rawScript.length > 0) {
+          availableBlocks = rawScript.map((tArr: any, index: number) => {
+            const rootBlock = Array.isArray(tArr) ? tArr[0] : tArr;
+            if (!rootBlock) return null;
+            const blockCount = Array.isArray(tArr) ? tArr.length : 1;
+            const displayName = getEntryBlockTitle(rootBlock);
+            const blockFunctions = filterFunctionsForBlock(rootBlock, deps.functions);
+            return {
+              index,
+              id: rootBlock.id || String(index),
+              type: rootBlock.type,
+              title: displayName,
+              blockCount,
+              blockJson: rootBlock,
+              functions: blockFunctions,
+              isSelected: index === 0,
+            };
+          }).filter(Boolean);
+        }
+      }
+    }
+
     // 타깃 블록이 명시적으로 선택되지 않았으면 첫 번째 스레드 사용
     if (!targetBlock && availableBlocks.length > 0) {
       const firstThread = threads[0];
-      const blocks = firstThread.getBlocks?.() || [];
+      const blocks = firstThread?.getBlocks?.() || [];
       if (blocks.length > 0) targetBlock = blocks[0];
+      else if (availableBlocks[0]) targetBlock = availableBlocks[0].blockJson;
       if (availableBlocks[0]) availableBlocks[0].isSelected = true;
+    }
+
+    if (!targetBlock && availableBlocks.length > 0 && availableBlocks[0]) {
+      targetBlock = availableBlocks[0].blockJson;
     }
 
     if (!targetBlock) {
@@ -423,19 +493,13 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
 
     const blockJson = typeof targetBlock.toJSON === 'function' ? targetBlock.toJSON(false) : targetBlock;
     const initialTitle = getEntryBlockTitle(targetBlock);
+    // 선택된 타깃 블록에서 참조하는 함수 및 그 내부 함수들만 선별 (무관한 n개 함수 전체 포함 차단)
+    const selectedFunctions = filterFunctionsForBlock(blockJson, deps.functions);
 
-    // 현재 선택된 오브젝트의 모양(pictures) 및 소리(sounds) 정보도 함께 추출하여
-    // 모양 바꾸기(change_to_some_shape 등)나 소리 재생 블록 주입 시 모양/소리 누락 방지
-    const currentLiveObj = Entry.playground?.object || Entry.container?.selectedObject;
     let objPictures: any[] = [];
     let objSounds: any[] = [];
-    // CODE 추출 시 모양/소리 메타데이터:
-    // projectData.objects에서 ID가 일치하는 오브젝트를 우선 사용하여
-    // script 내 ID와 완전히 일치하는 상태로 보존
     if (currentLiveObj) {
       try {
-        // projectData.objects에서 ID 일치 항목을 우선 사용 (장면 보관함 방식)
-        // exportProject()가 toJSON(false)로 직렬화하므로 script ID와 완전히 일치
         const liveId = currentLiveObj.id || currentLiveObj.id_;
         const exportedObj = liveId
           ? (Array.isArray(projectData.objects) ? projectData.objects.find((o: any) => o.id === liveId) : null)
@@ -445,7 +509,6 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
           objPictures = Array.isArray(sp.pictures) ? sp.pictures : (Array.isArray(exportedObj.pictures) ? exportedObj.pictures : []);
           objSounds = Array.isArray(sp.sounds) ? sp.sounds : (Array.isArray(exportedObj.sounds) ? exportedObj.sounds : []);
         } else {
-          // fallback: live 인스턴스에서 직접 추출 (toJSON(false) 사용)
           const serialized = serializeEntryObject(currentLiveObj);
           objPictures = serialized.pictures || [];
           objSounds = serialized.sounds || [];
@@ -464,7 +527,7 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
         variables: deps.variables,
         lists: deps.lists,
         messages: deps.messages,
-        functions: deps.functions,
+        functions: selectedFunctions,
         pictures: objPictures,
         sounds: objSounds,
       },
@@ -513,7 +576,7 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
         variables: deps.variables,
         lists: deps.lists,
         messages: deps.messages,
-        functions: deps.functions,
+        functions: filterFunctionsForBlock(serialized.script, deps.functions),
       },
       previewImageUrl: previewUrl,
     };
@@ -685,7 +748,30 @@ function extractDependencies(projectData: any) {
   const customFuncs = mergeById(
     projectData.functions || [],
     liveFuncList
-  );
+  ).map((f: any) => {
+    if (!f) return f;
+    const fId = f.id || getEntityId(f);
+    let liveFunc: any = null;
+    if (vc?.functions_) {
+      if (typeof vc.functions_ === 'object' && !Array.isArray(vc.functions_)) {
+        liveFunc = vc.functions_[fId];
+      } else if (Array.isArray(vc.functions_)) {
+        liveFunc = vc.functions_.find((x: any) => getEntityId(x) === fId);
+      }
+    }
+    const defName = extractFunctionNameFromDef(f) || (liveFunc ? extractFunctionNameFromDef(liveFunc) : '');
+    const template = (Entry as any)?.block?.['func_' + fId]?.template || liveFunc?.block?.template || f.template || (defName ? `%1 ${defName} %2` : null);
+    const description = liveFunc?.description || f.description || defName || null;
+    const name = defName || liveFunc?.name || f.name || getEntityName(liveFunc) || (template ? template.replace(/%\d+/g, '').trim() : null);
+
+    return {
+      ...f,
+      id: fId,
+      name: name || f.name || '함수',
+      template: template || undefined,
+      description: description || undefined,
+    };
+  });
 
   return {
     variables: JSON.parse(JSON.stringify(customVars)),
@@ -1265,10 +1351,11 @@ function loadObjectToEntry(objData: any) {
     });
   }
 
-  // 함수 (내부 content 스크립트 블록들의 변수/리스트 ID 치환 적용)
-  if (vc && Array.isArray(sceneMock.functions)) {
+  // 함수 (오브젝트 스크립트에서 실제로 참조하는 함수 및 하위 참조 함수만 선별 주입)
+  const objectFuncsToInject = filterFunctionsForBlock(rawObj.script, sceneMock.functions || []);
+  if (vc && Array.isArray(objectFuncsToInject)) {
     const currentFuncs = toSafeArray(vc.functions_);
-    [...sceneMock.functions].reverse().forEach((f: any) => {
+    [...objectFuncsToInject].reverse().forEach((f: any) => {
       const fId = getEntityId(f);
       const fName = getEntityName(f);
       if (!currentFuncs.some((cur: any) => (fId && getEntityId(cur) === fId) || (fName && getEntityName(cur) === fName))) {
@@ -1297,11 +1384,19 @@ function loadObjectToEntry(objData: any) {
           const newFunc = typeof Entry.Func === 'function' ? new Entry.Func(clonedFunc) : clonedFunc;
           if (Array.isArray(vc.functions_)) vc.functions_.push(newFunc);
           else if (typeof vc.functions_ === 'object') vc.functions_[newFunc.id] = newFunc;
-          if (typeof newFunc?.generateBlock === 'function') {
+          if (typeof Entry.Func?.makeBlock === 'function') {
+            Entry.Func.makeBlock(newFunc);
+          } else if (typeof newFunc?.generateBlock === 'function') {
             newFunc.generateBlock();
           }
+          if (Entry.playground?.blockMenu?.unbanBlockView) {
+            Entry.playground.blockMenu.unbanBlockView('func_' + newFunc.id);
+          }
+          if (Entry.playground?.blockMenu?.unbanClass) {
+            Entry.playground.blockMenu.unbanClass('functionInit', true);
+            Entry.playground.blockMenu.unbanClass('func_' + newFunc.id, true);
+          }
           Entry.Func?.updateMenu?.();
-          Entry.playground?.blockMenu?.unbanClass?.('functionInit', true);
         } catch (e) {
           console.warn('[Entry-Hub] 함수 추가 오류:', e);
         }
@@ -1466,10 +1561,25 @@ function loadCodeToEntry(codeData: any) {
     });
   }
 
-  // 4. 함수(functions) 동기화
-  if (vc && Array.isArray(codeData.functions)) {
+  // 4. 함수(functions) 동기화 (주입하려는 블록과 연관된 함수 및 에셋에 포함된 함수 정의 완전 주입)
+  const targetCodeForFuncScan = codeData.block || codeData.script || codeData.data || codeData;
+  const rawFunctions: any[] = Array.isArray(codeData.functions) ? codeData.functions : [];
+  const scannedFunctions = filterFunctionsForBlock(targetCodeForFuncScan, rawFunctions);
+  // 에셋에 저장된 functions와 스캔된 함수를 병합하여 함수 정의가 유실되지 않도록 보장
+  const functionsToInject: any[] = [];
+  const funcSeen = new Set<string>();
+  [...rawFunctions, ...scannedFunctions].forEach((f: any) => {
+    if (!f) return;
+    const fId = getEntityId(f);
+    if (!fId || !funcSeen.has(fId)) {
+      if (fId) funcSeen.add(fId);
+      functionsToInject.push(f);
+    }
+  });
+
+  if (vc && Array.isArray(functionsToInject)) {
     const currentFuncs = toSafeArray(vc.functions_);
-    codeData.functions.forEach((f: any) => {
+    functionsToInject.forEach((f: any) => {
       if (!f) return;
       const fId = getEntityId(f);
       const fName = getEntityName(f);
@@ -1497,22 +1607,44 @@ function loadCodeToEntry(codeData: any) {
           clonedFunc.id = savedFuncId;
           clonedFunc.name = savedFuncName;
 
+          // 1단계: Entry.Func 인스턴스 생성 및 functions_ 등록
           const newFunc = typeof Entry.Func === 'function' ? new Entry.Func(clonedFunc) : clonedFunc;
           if (Array.isArray(vc.functions_)) {
             vc.functions_.push(newFunc);
           } else if (typeof vc.functions_ === 'object') {
             vc.functions_[newFunc.id] = newFunc;
           }
-          if (typeof newFunc?.generateBlock === 'function') {
+
+          // 2단계: Entry.block에 func_<id> 스키마 정의 생성 (필수 핵심)
+          if (typeof Entry.Func?.makeBlock === 'function') {
+            Entry.Func.makeBlock(newFunc);
+          } else if (typeof newFunc?.generateBlock === 'function') {
             newFunc.generateBlock();
           }
-          Entry.Func?.updateMenu?.();
-          Entry.playground?.blockMenu?.unbanClass?.('functionInit', true);
+
+          // 3단계: 블록 메뉴에서 언밴하여 에디터 툴바에 노출
+          if (Entry.playground?.blockMenu?.unbanBlockView) {
+            Entry.playground.blockMenu.unbanBlockView('func_' + newFunc.id);
+          }
+          if (Entry.playground?.blockMenu?.unbanClass) {
+            Entry.playground.blockMenu.unbanClass('functionInit', true);
+            Entry.playground.blockMenu.unbanClass('func_' + newFunc.id, true);
+          }
+
+          if (typeof Entry.Func?.updateMenu === 'function') {
+            Entry.Func.updateMenu();
+          }
         } catch (e) {
           console.warn('[Entry-Hub] 함수 주입 오류:', e);
         }
       }
     });
+
+    if (typeof vc.updateViews === 'function') {
+      try {
+        vc.updateViews();
+      } catch { }
+    }
   }
 
   // 5. 현재 대상 오브젝트(Target Object)의 모양(Picture) 및 소리(Sound) 매핑 사전 구축

@@ -448,8 +448,10 @@ export default function AdminDashboardPage() {
 
   // 관리자 권한 확인 (비관리자일 경우 접근 차단 안내)
   const isMasterAdmin =
+    profile?.entry_user_id === '6a17db19865137773fb9d8c9' ||
     (profile?.entry_username || '').toLowerCase() === 'myentrymy' ||
     (profile?.nickname || '').toLowerCase() === 'myentrymy' ||
+    (user?.email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' ||
     (user?.email || '').toLowerCase() === 'myentrymy@entry-hub.local' ||
     (user?.email || '').toLowerCase() === 'learn.code.ing.ing@gmail.com';
   if (!user || (!isAdmin && profile?.role !== 'ADMIN' && !isMasterAdmin)) {

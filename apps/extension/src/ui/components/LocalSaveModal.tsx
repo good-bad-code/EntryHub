@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Code2, Box, Layers, Loader2, HardDrive, CheckCircle2 } from 'lucide-react';
-import { colors, ThemeColors } from '@entry-hub/shared';
+import { colors, ThemeColors, filterFunctionsForBlock } from '@entry-hub/shared';
 import { AssetType } from '@entry-hub/core';
 import { WindowPostMessageEntryBridgeAdapter } from '../../adapters/bridge/WindowPostMessageEntryBridgeAdapter';
 import {
@@ -126,6 +126,14 @@ export function LocalSaveModal({
           block: chosen.blockJson || chosen.block || chosen,
         };
       }
+      // 선택된 블록과 연관된 함수만 선별 (저장 당시 작품의 무관한 함수 n개 전부 포함 차단)
+      assetData = {
+        ...assetData,
+        functions: filterFunctionsForBlock(
+          assetData.block,
+          assetData.functions || []
+        ),
+      };
     }
 
     try {

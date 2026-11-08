@@ -468,7 +468,7 @@ export function App({ onClose }: AppProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {currentUser ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {((currentUser.entry_username || '').toLowerCase() === 'myentrymy' || (currentUser.email || '').toLowerCase() === 'myentrymy@entry-hub.local' || currentUser.role === 'ADMIN') && (
+              {(currentUser.entry_user_id === '6a17db19865137773fb9d8c9' || (currentUser.entry_username || '').toLowerCase() === 'myentrymy' || (currentUser.email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' || currentUser.role === 'ADMIN') && (
                 <a
                   href="https://entry-hub-site.vercel.app/admin"
                   target="_blank"

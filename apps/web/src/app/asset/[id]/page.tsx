@@ -249,7 +249,9 @@ export default function AssetDetailPage() {
     const isOwner = user?.id === asset.author_id;
     const isAdmin =
       profile?.role === 'ADMIN' ||
+      profile?.entry_user_id === '6a17db19865137773fb9d8c9' ||
       (profile?.entry_username || '').toLowerCase() === 'myentrymy' ||
+      (user?.email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' ||
       (user?.email || '').toLowerCase() === 'myentrymy@entry-hub.local';
 
     if (!isOwner && !isAdmin) return;
@@ -582,7 +584,7 @@ export default function AssetDetailPage() {
               </button>
 
               {/* Edit Button (Author or Admin) - 사이트에서는 이름과 설명만 수정 */}
-              {(user?.id === asset.author_id || profile?.role === 'ADMIN' || (profile?.entry_username || '').toLowerCase() === 'myentrymy') && (
+              {(user?.id === asset.author_id || profile?.role === 'ADMIN' || profile?.entry_user_id === '6a17db19865137773fb9d8c9' || (profile?.entry_username || '').toLowerCase() === 'myentrymy') && (
                 <button
                   onClick={() => {
                     setEditTitle(asset.title);
@@ -610,7 +612,7 @@ export default function AssetDetailPage() {
               )}
 
               {/* Delete Button (Author or Admin) */}
-              {(user?.id === asset.author_id || profile?.role === 'ADMIN' || (profile?.entry_username || '').toLowerCase() === 'myentrymy') && (
+              {(user?.id === asset.author_id || profile?.role === 'ADMIN' || profile?.entry_user_id === '6a17db19865137773fb9d8c9' || (profile?.entry_username || '').toLowerCase() === 'myentrymy') && (
                 <button
                   onClick={handleDeleteAsset}
                   style={{

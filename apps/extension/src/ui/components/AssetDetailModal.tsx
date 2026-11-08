@@ -268,7 +268,7 @@ export function AssetDetailModal({
 
         {/* Content */}
         <div style={{ padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {(() => {
+          {asset.type !== 'CODE' && (() => {
             const rawData: any = asset.data || {};
             const fallbackPic =
               rawData.selectedPicture ||
@@ -396,7 +396,7 @@ export function AssetDetailModal({
 
         {/* Action Button */}
         <div style={{ padding: '12px 16px', borderTop: `1px solid ${colors.hairline}`, display: 'flex', gap: '8px' }}>
-          {(isLocalAsset || currentUser?.id === asset.authorId || currentUser?.entry_username === 'myentrymy' || currentUser?.email === 'myentrymy@entry-hub.local' || currentUser?.role === 'ADMIN') && (
+          {(isLocalAsset || currentUser?.id === asset.authorId || currentUser?.entry_user_id === '6a17db19865137773fb9d8c9' || currentUser?.entry_username === 'myentrymy' || currentUser?.email === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' || currentUser?.role === 'ADMIN') && (
             <>
               <button
                 type="button"

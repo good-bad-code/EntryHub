@@ -638,3 +638,53 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.check_and_repair_login_password(TEXT, TEXT) TO anon, authenticated;
 
+-- ==============================================================================
+-- 10. repair_auth_user_schema RPC (Database error querying schema 긴급 복구 함수)
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.repair_auth_user_schema(p_email TEXT DEFAULT NULL)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+BEGIN
+  UPDATE auth.users
+  SET confirmation_token = COALESCE(confirmation_token, ''),
+      recovery_token = COALESCE(recovery_token, ''),
+      email_change_token_new = COALESCE(email_change_token_new, ''),
+      email_change = COALESCE(email_change, ''),
+      email_change_token_current = COALESCE(email_change_token_current, ''),
+      phone_change = COALESCE(phone_change, ''),
+      phone_change_token = COALESCE(phone_change_token, ''),
+      reauthentication_token = COALESCE(reauthentication_token, ''),
+      is_sso_user = COALESCE(is_sso_user, FALSE),
+      is_anonymous = COALESCE(is_anonymous, FALSE)
+  WHERE (p_email IS NULL OR email = p_email);
+
+  -- identities 누락 동기화
+  INSERT INTO auth.identities (
+    id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+  )
+  SELECT
+    u.id::text,
+    u.id,
+    jsonb_build_object('sub', u.id::text, 'email', u.email),
+    'email',
+    u.email,
+    NOW(),
+    u.created_at,
+    NOW()
+  FROM auth.users u
+  WHERE (p_email IS NULL OR u.email = p_email)
+    AND u.email IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM auth.identities i WHERE i.user_id = u.id AND i.provider = 'email'
+    )
+  ON CONFLICT DO NOTHING;
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.repair_auth_user_schema(TEXT) TO anon, authenticated;
+

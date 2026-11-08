@@ -180,12 +180,24 @@ if (isPlayEntry) {
   initSidebarInjector();
   initVerificationWatcher();
 
-  // 엔트리 페이지 로드 후 닉네임 실시간 자동 동기화 (초기 2.5초 후 1회 및 60초 주기)
+  // 엔트리 페이지 로드 후 닉네임 실시간 자동 동기화 (확장 프로그램 컨텍스트 유효성 검사 포함)
   setTimeout(() => {
-    syncEntryNickname();
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+        syncEntryNickname();
+      }
+    } catch {}
   }, 2500);
 
-  setInterval(() => {
-    syncEntryNickname();
+  const syncTimer = setInterval(() => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+        clearInterval(syncTimer);
+        return;
+      }
+      syncEntryNickname();
+    } catch {
+      clearInterval(syncTimer);
+    }
   }, 60000);
 }

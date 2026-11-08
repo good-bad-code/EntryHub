@@ -12,8 +12,10 @@ export function Header() {
   const isAdmin =
     authIsAdmin ||
     profile?.role === 'ADMIN' ||
+    profile?.entry_user_id === '6a17db19865137773fb9d8c9' ||
     (profile?.entry_username || '').toLowerCase() === 'myentrymy' ||
     (profile?.nickname || '').toLowerCase() === 'myentrymy' ||
+    (user?.email || '').toLowerCase() === 'entry_6a17db19865137773fb9d8c9@entry-hub.local' ||
     (user?.email || '').toLowerCase() === 'myentrymy@entry-hub.local';
 
   const navLinkStyle: React.CSSProperties = {
@@ -192,7 +194,7 @@ export function Header() {
                     <User size={16} color={colors.mute} />
                   )}
                 </div>
-                <span>{profile?.nickname || user.email?.split('@')[0]}</span>
+                <span>{profile?.nickname || (user.email?.startsWith('entry_') ? (loading ? '' : '엔트리 사용자') : user.email?.split('@')[0])}</span>
               </Link>
 
               <button

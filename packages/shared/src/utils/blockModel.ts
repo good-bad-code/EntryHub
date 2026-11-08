@@ -177,6 +177,13 @@ export interface ParsedTemplateSegment {
 export function extractFunctionNameFromDef(funcDef: any): string {
   if (!funcDef) return '';
   if (typeof funcDef === 'string') return funcDef;
+  if (funcDef.template) {
+    const clean = String(funcDef.template).replace(/%\d+/g, '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (clean) return clean;
+  }
+  if (funcDef.description && typeof funcDef.description === 'string' && funcDef.description.trim()) {
+    return funcDef.description.trim();
+  }
   if (funcDef.name && funcDef.name !== '함수' && funcDef.name !== '함수 정의') return funcDef.name;
   if (funcDef.title && funcDef.title !== '함수' && funcDef.title !== '함수 정의') return funcDef.title;
 
@@ -191,7 +198,8 @@ export function extractFunctionNameFromDef(funcDef: any): string {
     }
     if (typeof node === 'object') {
       if (node.type === 'function_field_label' && node.params?.[0]) {
-        return String(node.params[0]);
+        const str = String(node.params[0]).trim();
+        if (str) return str;
       }
       if (node.params && Array.isArray(node.params)) {
         const found = findLabel(node.params);
@@ -219,9 +227,7 @@ export function extractFunctionNameFromDef(funcDef: any): string {
     if (label) return label;
   }
 
-  if (funcDef.name) return funcDef.name;
-  if (funcDef.title) return funcDef.title;
-  return '';
+  return funcDef.name || funcDef.title || '';
 }
 
 /**
@@ -300,13 +306,61 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
   // 함수 호출 블록 (func_... 또는 type이 함수 id와 일치하는 경우)
   if (type.startsWith('func_') || functions.some((f: any) => (f.id || f._id) === type || `func_${f.id || f._id}` === type)) {
     const funcId = type.startsWith('func_') ? type.slice(5) : type;
-    const found = functions.find((f: any) => {
+    let found = functions.find((f: any) => {
       if (!f) return false;
       const fId = f.id || f._id;
       return fId === funcId || fId === type || `func_${fId}` === type;
     });
 
-    // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
+    if (!found && functions.length === 1) {
+      found = functions[0];
+    }
+
+    // 1. 엔트리 공식 템플릿(template) 지원: found.template 또는 런타임 Entry.block[type].template
+    const activeTemplate: string | null =
+      found?.template ||
+      ((typeof window !== 'undefined' && (window as any).Entry?.block?.[type]?.template)
+        ? (window as any).Entry.block[type].template
+        : null);
+
+    if (activeTemplate) {
+      const segments: ParsedTemplateSegment[] = [];
+      const regex = /%([0-9]+)/g;
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = regex.exec(activeTemplate)) !== null) {
+        if (match.index > lastIndex) {
+          const textChunk = activeTemplate.slice(lastIndex, match.index).trim();
+          if (textChunk) {
+            segments.push({ type: 'text', text: textChunk });
+          }
+        }
+        const pIdx = parseInt(match[1], 10) - 1;
+        // 실제 블록의 params 범위 내에 있는 경우만 파라미터 슬롯으로 처리 (끝의 인디케이터 %N 제외)
+        if (pIdx >= 0 && pIdx < params.length) {
+          segments.push({
+            type: 'param',
+            paramIndex: pIdx,
+            param: params[pIdx],
+          });
+        }
+        lastIndex = regex.lastIndex;
+      }
+
+      if (lastIndex < activeTemplate.length) {
+        const remaining = activeTemplate.slice(lastIndex).trim();
+        if (remaining) {
+          segments.push({ type: 'text', text: remaining });
+        }
+      }
+
+      if (segments.length > 0) {
+        return segments;
+      }
+    }
+
+    // 2. 정의 블록 체인(fieldBlocks)으로부터 복원
     if (found) {
       const fieldBlocks = getFuncDefFieldBlocks(found);
       if (fieldBlocks.length > 0) {
@@ -314,7 +368,7 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
         let callParamIdx = 0;
         for (const field of fieldBlocks) {
           if (field.type === 'function_field_label') {
-            const label = field.params?.[0] ? String(field.params[0]) : '';
+            const label = field.params?.[0] ? String(field.params[0]).trim() : '';
             if (label) segments.push({ type: 'text', text: label });
           } else {
             // 파라미터 슬롯: 실제 호출 값으로 채움
@@ -328,11 +382,13 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
             callParamIdx++;
           }
         }
-        return segments;
+        if (segments.length > 0) {
+          return segments;
+        }
       }
     }
 
-    // 정의 없는 경우 폴백: 함수명 + 파라미터 나열
+    // 3. 정의 없는 경우 폴백: 함수명 + 파라미터 나열 (사용자 수정 함수명/라벨 우선)
     const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
     const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
     params.forEach((param, idx) => {
@@ -340,7 +396,6 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
       const pType = param?.type || '';
       // function_field_string/boolean은 정의 descriptor이므로 실제 값 슬롯으로 처리
       if (pType === 'function_field_string' || pType === 'function_param_string') {
-        // params[1] 이후에 실제 호출 값이 담길 수 있으나 없으면 빈 슬롯
         const actualVal = param.params?.[1] ?? null;
         segments.push({ type: 'param', paramIndex: idx, param: actualVal });
         return;
@@ -493,6 +548,11 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
     return null;
   }
 
+  // 0. funcDef에 이미 fields 배열이 명시된 경우
+  if (Array.isArray(funcDef.fields) && funcDef.fields.length > 0) {
+    return funcDef.fields;
+  }
+
   // 1. funcDef.params 직접 접근 (def_functions 블록 자체인 경우)
   if (funcDef.params) {
     const result = findAndTraverse(funcDef.params);
@@ -511,7 +571,32 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
     }
     if (!content) return [];
     const result = findAndTraverse(content);
-    if (result) return result;
+    if (result && result.length > 0) return result;
+
+    // 3. traverseChain으로 잡히지 않았을 경우: content 내의 모든 FIELD_TYPES 블록을 순서대로 수집 (DFS 폴백)
+    const collected: any[] = [];
+    const visited = new Set<string>();
+    const dfsCollect = (curr: any) => {
+      if (!curr) return;
+      if (Array.isArray(curr)) {
+        curr.forEach(dfsCollect);
+        return;
+      }
+      if (typeof curr === 'object') {
+        if (curr.type && FIELD_TYPES.has(curr.type)) {
+          const key = curr.id || `${curr.type}_${collected.length}`;
+          if (!visited.has(key)) {
+            visited.add(key);
+            collected.push(curr);
+          }
+        }
+        if (curr.params && Array.isArray(curr.params)) {
+          curr.params.forEach(dfsCollect);
+        }
+      }
+    };
+    dfsCollect(content);
+    if (collected.length > 0) return collected;
   }
 
   return [];
@@ -657,7 +742,26 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
       return fId === funcId || fId === type || `func_${fId}` === type;
     });
 
-    // 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
+    // 1. 엔트리 공식 템플릿 지원
+    const activeTemplate: string | null =
+      found?.template ||
+      ((typeof window !== 'undefined' && (window as any).Entry?.block?.[type]?.template)
+        ? (window as any).Entry.block[type].template
+        : null);
+
+    if (activeTemplate) {
+      let result = activeTemplate.replace(/%([0-9]+)/g, (_match: string, num: string) => {
+        const idx = parseInt(num, 10) - 1;
+        if (idx >= 0 && idx < params.length) {
+          return formatParamValue(params[idx], ctx);
+        }
+        return '';
+      });
+      result = result.replace(/\s+/g, ' ').trim();
+      if (result) return result;
+    }
+
+    // 2. 정의가 있는 경우: 라벨과 파라미터를 순서대로 인터리브
     if (found) {
       const fieldBlocks = getFuncDefFieldBlocks(found);
       if (fieldBlocks.length > 0) {
@@ -665,7 +769,7 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
         let callParamIdx = 0;
         for (const field of fieldBlocks) {
           if (field.type === 'function_field_label') {
-            const label = field.params?.[0] ? String(field.params[0]) : '';
+            const label = field.params?.[0] ? String(field.params[0]).trim() : '';
             if (label) parts.push(label);
           } else {
             const actualParam = callParamIdx < params.length ? params[callParamIdx] : null;
@@ -679,11 +783,12 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
             callParamIdx++;
           }
         }
-        return parts.join(' ').replace(/\s+/g, ' ').trim();
+        const rendered = parts.join(' ').replace(/\s+/g, ' ').trim();
+        if (rendered) return rendered;
       }
     }
 
-    // 정의 없는 경우 폴백
+    // 3. 정의 없는 경우 폴백: 사용자 정의 이름 우선
     const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
     const paramParts = params.map((p: any) => {
       const pType = p?.type || '';
@@ -730,5 +835,203 @@ export function renderBlockTemplate(block: any, functions: any[] = [], ctx?: { p
     .join(' ');
 
   return paramTexts ? `${cleanType} (${paramTexts})` : cleanType;
+}
+
+/**
+ * 블록 또는 스크립트에서 실제로 사용/정의된 함수 및 그 함수가 내부에서 참조하는 함수들을
+ * 재귀적(전이적, transitive)으로 탐색하여 연관된 함수 목록만 선별(필터링)합니다.
+ *
+ * @param rootBlockOrScript 검사할 블록 객체 또는 스크립트 배열 (단일 블록, 1차원 스레드, 2차원 다중 스레드 지원)
+ * @param allFunctions 프로젝트에 등록된 전체 함수 목록
+ * @returns 실제로 참조되는 함수 객체들의 배열 (무관한 함수는 완전 제외)
+ */
+export function filterFunctionsForBlock(rootBlockOrScript: any, allFunctions: any[]): any[] {
+  if (!allFunctions || !Array.isArray(allFunctions) || allFunctions.length === 0) {
+    return [];
+  }
+  if (!rootBlockOrScript) {
+    return [];
+  }
+
+  // 빠른 조회를 위한 ID 및 이름 매핑 테이블 구축
+  const idToFunc = new Map<string, any>();
+  const nameToFunc = new Map<string, any>();
+
+  allFunctions.forEach((f) => {
+    if (!f) return;
+    const fId = f.id || f._id;
+    if (fId) idToFunc.set(fId, f);
+    const fName = f.name || extractFunctionNameFromDef(f);
+    if (fName) nameToFunc.set(fName, f);
+  });
+
+  const initialFuncIds = new Set<string>();
+
+  // 블록 트리 순회 및 함수 호출 / 정의 탐색 함수
+  const scanNode = (node: any) => {
+    if (!node) return;
+
+    if (typeof node === 'string') {
+      const trimmed = node.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          scanNode(JSON.parse(node));
+        } catch { }
+      }
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        scanNode(item);
+      }
+      return;
+    }
+
+    if (typeof node !== 'object') return;
+
+    const type = node.type || node.name || '';
+    if (typeof type === 'string') {
+      // 1. func_<id> 형태의 함수 호출 블록
+      if (type.startsWith('func_')) {
+        const fId = type.slice(5);
+        if (fId && idToFunc.has(fId)) {
+          initialFuncIds.add(fId);
+        } else if (allFunctions.length === 1) {
+          // 함수가 단 1개 등록된 상태에서 func_ 블록이 발견되면 무조건 매칭
+          const singleId = allFunctions[0].id || allFunctions[0]._id;
+          if (singleId) initialFuncIds.add(singleId);
+        }
+      } else if (idToFunc.has(type)) {
+        initialFuncIds.add(type);
+      }
+    }
+
+    // 2. 함수 정의 블록 (def_functions, function_create, function_create_value)
+    if (type === 'def_functions' || type === 'function_create' || type === 'function_create_value') {
+      if (node.id && idToFunc.has(node.id)) {
+        initialFuncIds.add(node.id);
+      }
+      const defName = extractFunctionNameFromDef(node);
+      if (defName && nameToFunc.has(defName)) {
+        const matched = nameToFunc.get(defName);
+        if (matched?.id) initialFuncIds.add(matched.id);
+        else if (matched?._id) initialFuncIds.add(matched._id);
+      } else if (allFunctions.length === 1) {
+        const singleId = allFunctions[0].id || allFunctions[0]._id;
+        if (singleId) initialFuncIds.add(singleId);
+      }
+    }
+
+    // 3. 노드 ID가 특정 함수의 content 안에 포함되어 있는지 확인
+    if (node.id) {
+      for (const f of allFunctions) {
+        if (!f) continue;
+        const cStr = typeof f.content === 'string' ? f.content : JSON.stringify(f.content || '');
+        if (cStr.includes(node.id)) {
+          const fId = f.id || f._id;
+          if (fId) initialFuncIds.add(fId);
+        }
+      }
+    }
+
+    // 파라미터 재귀 탐색
+    if (node.params && Array.isArray(node.params)) {
+      for (const p of node.params) {
+        scanNode(p);
+      }
+    }
+
+    // 내부 실행 블록(statements) 재귀 탐색
+    if (node.statements && Array.isArray(node.statements)) {
+      for (const stmt of node.statements) {
+        scanNode(stmt);
+      }
+    }
+
+    // 연결된 다음 블록(next) 재귀 탐색
+    if (node.next) {
+      scanNode(node.next);
+    }
+  };
+
+  scanNode(rootBlockOrScript);
+
+  if (initialFuncIds.size === 0) {
+    return [];
+  }
+
+  // 4. 전이적(Transitive / 재귀적) 의존성 전파: 함수 내부에서 호출하는 하위 함수 탐색
+  const visited = new Set<string>();
+  const queue: string[] = [];
+
+  for (const id of initialFuncIds) {
+    visited.add(id);
+    queue.push(id);
+  }
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const f = idToFunc.get(currentId);
+    if (!f) continue;
+
+    let content = f.content;
+    if (typeof content === 'string') {
+      try {
+        content = JSON.parse(content);
+      } catch {
+        content = null;
+      }
+    }
+
+    if (content) {
+      const childFuncIds = new Set<string>();
+
+      const scanChild = (node: any) => {
+        if (!node) return;
+        if (Array.isArray(node)) {
+          for (const item of node) scanChild(item);
+          return;
+        }
+        if (typeof node !== 'object') return;
+
+        const type = node.type || node.name || '';
+        if (typeof type === 'string') {
+          if (type.startsWith('func_')) {
+            const fId = type.slice(5);
+            if (fId && idToFunc.has(fId)) childFuncIds.add(fId);
+          } else if (idToFunc.has(type)) {
+            childFuncIds.add(type);
+          }
+        }
+
+        if (node.params && Array.isArray(node.params)) {
+          for (const p of node.params) scanChild(p);
+        }
+        if (node.statements && Array.isArray(node.statements)) {
+          for (const stmt of node.statements) scanChild(stmt);
+        }
+        if (node.next) {
+          scanChild(node.next);
+        }
+      };
+
+      scanChild(content);
+
+      for (const childId of childFuncIds) {
+        if (!visited.has(childId)) {
+          visited.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
+  }
+
+  // 최종적으로 방문된(직접/간접 참조된) 함수들만 반환
+  return allFunctions.filter((f) => {
+    if (!f) return false;
+    const fId = f.id || f._id;
+    return fId && visited.has(fId);
+  });
 }
 
