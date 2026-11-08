@@ -50,6 +50,9 @@ export default function LoginPage() {
     setErrorMsg(null);
     setIsLoading(true);
 
+    // [팝업 차단 방지] 사용자 클릭 이벤트 동기 컨텍스트에서 즉시 빈 창 선오픈
+    const popup = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+
     try {
       const code = `EH-LOG-${Math.floor(1000 + Math.random() * 9000)}`;
       setVerificationCode(code);
@@ -67,18 +70,23 @@ export default function LoginPage() {
         .single();
 
       if (error || !data) {
+        if (popup) popup.close();
         throw new Error(error?.message || '로그인 인증 요청 생성에 실패했습니다.');
       }
 
       const vId = data.id;
       setEntryLoginStep('WAITING');
 
-      // 2. 엔트리 메인 홈 페이지 새 탭 오픈
-      window.open('https://playentry.org?entry_hub_action=login', '_blank');
+      // 2. 엔트리 메인 홈 페이지로 팝업 이동
+      const targetUrl = 'https://playentry.org?entry_hub_action=login';
+      if (popup) {
+        popup.location.href = targetUrl;
+      }
 
       // 3. 2초 간격으로 승인 여부 폴링
       startPolling(vId);
     } catch (err: any) {
+      if (popup) popup.close();
       setErrorMsg(err.message || '엔트리 인증 요청 중 문제가 발생했습니다.');
       setEntryLoginStep('IDLE');
     } finally {
@@ -406,6 +414,10 @@ export default function LoginPage() {
                     >
                       취소
                     </button>
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: colors.mute, marginTop: '16px', lineHeight: 1.5 }}>
+                    창이 자동으로 열리지 않았나요? 브라우저의 팝업 차단이 작동했을 수 있으니 위의 <strong>[엔트리 창 다시 열기]</strong>를 눌러주세요.
                   </div>
                 </div>
               )}

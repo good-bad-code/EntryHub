@@ -297,6 +297,9 @@ export default function ProfilePage() {
     setSecurityError(null);
     setIsVerifyingEntryId(true);
 
+    // [팝업 차단 방지] 사용자 클릭 직후 동기적으로 빈 창 선오픈
+    const popup = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+
     try {
       const code = `EH-CHG-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -312,13 +315,17 @@ export default function ProfilePage() {
         .single();
 
       if (error || !data) {
+        if (popup) popup.close();
         throw new Error('인증 요청 생성 실패');
       }
 
       const vId = data.id;
 
-      // 엔트리 메인 홈 탭 열기
-      window.open('https://playentry.org?entry_hub_action=link_id', '_blank');
+      // 엔트리 메인 홈 탭 주소 이동
+      const targetUrl = 'https://playentry.org?entry_hub_action=link_id';
+      if (popup) {
+        popup.location.href = targetUrl;
+      }
 
       // 폴링 시작
       if (idPollingRef.current) clearInterval(idPollingRef.current);
@@ -385,6 +392,7 @@ export default function ProfilePage() {
         }
       }, 2000);
     } catch (err: any) {
+      if (popup) popup.close();
       setSecurityError(err.message || '인증 요청 생성 중 오류가 발생했습니다.');
       setIsVerifyingEntryId(false);
     }

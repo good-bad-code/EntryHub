@@ -182,6 +182,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch {}
 
+    // 4. [신규] 엔트리 로그인으로 인해 auth.users 비밀번호가 임시 autologin 비밀번호로 덮어써졌을 경우 자동 복구
+    try {
+      const { data: repairRes, error: repairErr } = await supabase.rpc('check_and_repair_login_password', {
+        p_identifier: rawId,
+        p_password: pass,
+      });
+
+      if (!repairErr && repairRes?.success && repairRes?.email) {
+        const { error: retryErr } = await supabase.auth.signInWithPassword({
+          email: repairRes.email,
+          password: pass,
+        });
+        if (!retryErr) return { error: null };
+      }
+    } catch (e) {
+      console.warn('[AuthContext] check_and_repair_login_password error:', e);
+    }
+
     return { error: new Error('아이디 또는 비밀번호가 올바르지 않습니다.') };
   };
 

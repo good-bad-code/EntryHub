@@ -83,6 +83,9 @@ export default function RegisterPage() {
     setErrorMsg(null);
     setIsLoading(true);
 
+    // [팝업 차단 방지] 사용자 클릭 이벤트 동기 컨텍스트에서 즉시 빈 창 선오픈
+    const popup = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+
     try {
       const code = `EH-REG-${Math.floor(1000 + Math.random() * 9000)}`;
       setVerificationCode(code);
@@ -100,6 +103,7 @@ export default function RegisterPage() {
         .single();
 
       if (error || !data) {
+        if (popup) popup.close();
         throw new Error(error?.message || '인증 요청 생성에 실패했습니다.');
       }
 
@@ -107,12 +111,16 @@ export default function RegisterPage() {
       setVerificationId(vId);
       setStep('WAITING_ENTRY');
 
-      // 2. 엔트리 메인 홈 페이지 새 탭 오픈
-      window.open('https://playentry.org?entry_hub_action=signup', '_blank');
+      // 2. 미리 연 팝업 창의 주소를 엔트리 회원가입 주소로 이동
+      const targetUrl = 'https://playentry.org?entry_hub_action=signup';
+      if (popup) {
+        popup.location.href = targetUrl;
+      }
 
       // 3. 2초 간격으로 인증 완료 여부 폴링
       startPolling(vId);
     } catch (err: any) {
+      if (popup) popup.close();
       setErrorMsg(err.message || '회원가입 요청 중 오류가 발생했습니다.');
       setStep('GUIDE');
     } finally {
@@ -493,6 +501,10 @@ export default function RegisterPage() {
                 >
                   취소
                 </button>
+              </div>
+
+              <div style={{ fontSize: '11px', color: colors.mute, marginTop: '18px', textAlign: 'center', lineHeight: 1.5 }}>
+                창이 자동으로 열리지 않았나요? 브라우저의 팝업 차단이 작동했을 수 있으니 위의 <strong>[엔트리 창 다시 열기]</strong>를 눌러주세요.
               </div>
             </div>
           )}

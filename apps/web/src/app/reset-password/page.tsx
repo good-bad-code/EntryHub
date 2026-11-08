@@ -65,6 +65,9 @@ export default function ResetPasswordPage() {
 
     setIsLoading(true);
 
+    // [팝업 차단 방지] 사용자 클릭 이벤트 동기 컨텍스트에서 즉시 빈 창 선오픈
+    const popup = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+
     try {
       const code = `EH-PWD-${Math.floor(1000 + Math.random() * 9000)}`;
       setVerificationCode(code);
@@ -82,6 +85,7 @@ export default function ResetPasswordPage() {
         .single();
 
       if (error || !data) {
+        if (popup) popup.close();
         throw new Error(error?.message || '인증 요청 생성 중 오류가 발생했습니다.');
       }
 
@@ -89,12 +93,16 @@ export default function ResetPasswordPage() {
       setVerificationId(vId);
       setIsVerifying(true);
 
-      // 엔트리 메인 페이지 팝업 오픈 (확장프로그램이 액션을 포착하여 인증 모달 표시)
-      window.open('https://playentry.org?entry_hub_action=reset_password', '_blank');
+      // 엔트리 메인 페이지 팝업 주소 이동 (확장프로그램이 액션을 포착하여 인증 모달 표시)
+      const targetUrl = 'https://playentry.org?entry_hub_action=reset_password';
+      if (popup) {
+        popup.location.href = targetUrl;
+      }
 
       // 인증 승인 여부 실시간 폴링 시작
       startPolling(vId, cleanPassword);
     } catch (err: any) {
+      if (popup) popup.close();
       setErrorMsg(err?.message || '인증 요청 생성 중 오류가 발생했습니다.');
       setIsVerifying(false);
     } finally {
