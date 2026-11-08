@@ -1169,7 +1169,7 @@ function loadSceneToEntry(sceneData: any) {
       const savedScript = raw.script;
       delete raw.script;
       remapValue(raw);
-      raw.script = savedScript;
+      raw.script = normalizeScriptKeyParams(savedScript);
 
       return raw;
     });
@@ -1460,7 +1460,7 @@ function loadObjectToEntry(objData: any) {
     if (savedSpriteSounds !== null) rawObj.sprite.sounds = savedSpriteSounds;
   }
 
-  rawObj.script = savedScript;
+  rawObj.script = normalizeScriptKeyParams(savedScript);
 
   if (Entry.container && typeof Entry.container.addObject === 'function') {
     Entry.container.addObject(rawObj);
@@ -1470,6 +1470,159 @@ function loadObjectToEntry(objData: any) {
 
   repairOrphanVariables();
   refreshEntryEditorViews();
+}
+
+// =========================================================
+// 키보드 키 블록(when_some_key_pressed, is_press_some_key 등) 드롭다운 파라미터 정규화
+// 엔트리 런타임의 Dropdown 옵션 규격과 100% 일치시켜 '대상 없음' 버그를 원천 방지
+// =========================================================
+function normalizeEntryKeyParam(blockType: string, currentVal: any): any {
+  const Entry = (window as any).Entry;
+  const blockDef = Entry?.block?.[blockType];
+
+  // 한글/영문 키명 -> 키 코드 문자열 역매핑 사전
+  const NAME_TO_CODE: Record<string, string> = {
+    스페이스: '32',
+    스페이스바: '32',
+    space: '32',
+    spacebar: '32',
+    위: '38',
+    위쪽: '38',
+    '위쪽 화살표': '38',
+    up: '38',
+    arrowup: '38',
+    아래: '40',
+    아래쪽: '40',
+    '아래쪽 화살표': '40',
+    down: '40',
+    arrowdown: '40',
+    왼쪽: '37',
+    '왼쪽 화살표': '37',
+    left: '37',
+    arrowleft: '37',
+    오른쪽: '39',
+    '오른쪽 화살표': '39',
+    right: '39',
+    arrowright: '39',
+    엔터: '13',
+    enter: '13',
+    쉬프트: '16',
+    shift: '16',
+    컨트롤: '17',
+    ctrl: '17',
+    control: '17',
+    알트: '18',
+    alt: '18',
+    esc: '27',
+    escape: '27',
+    백스페이스: '8',
+    backspace: '8',
+    탭: '9',
+    tab: '9',
+  };
+
+  const rawStr = String(currentVal ?? '').trim();
+  const rawLower = rawStr.toLowerCase();
+  const targetCodeStr = NAME_TO_CODE[rawLower] || NAME_TO_CODE[rawStr] || rawStr || '32';
+
+  // 1. 엔트리 런타임의 blockDef options 실시간 조사
+  if (blockDef && Array.isArray(blockDef.params)) {
+    const firstField = blockDef.params[0];
+    let options: any[] = [];
+    if (typeof firstField?.options === 'function') {
+      try {
+        options = firstField.options();
+      } catch {}
+    } else if (Array.isArray(firstField?.options)) {
+      options = firstField.options;
+    }
+
+    if (Array.isArray(options) && options.length > 0) {
+      // 1순위: 옵션 값(opt[1])과 targetCodeStr 대조 (문자열 또는 숫자)
+      for (const opt of options) {
+        if (!Array.isArray(opt) || opt.length < 2) continue;
+        const optVal = opt[1];
+        if (String(optVal).trim() === targetCodeStr || String(optVal).trim() === rawStr) {
+          return optVal; // 런타임 옵션이 정의한 원래 타입(number 또는 string) 그대로 반환
+        }
+      }
+
+      // 2순위: 옵션 라벨(opt[0])과 사용자의 값 대조
+      for (const opt of options) {
+        if (!Array.isArray(opt) || opt.length < 2) continue;
+        const optLabel = String(opt[0]).trim().toLowerCase();
+        if (optLabel === rawLower || optLabel.includes(rawLower) || rawLower.includes(optLabel)) {
+          return opt[1];
+        }
+      }
+
+      // 3순위: 기본 스페이스('32') 옵션 탐색
+      const spaceOpt = options.find((opt: any) => Array.isArray(opt) && (String(opt[1]) === '32' || String(opt[0]).includes('스페이스')));
+      if (spaceOpt) {
+        return spaceOpt[1];
+      }
+
+      // 4순위: 첫 번째 옵션 반환
+      return options[0][1];
+    }
+  }
+
+  // 폴백: 런타임 options 접근이 불가능할 경우 문자열 키 코드 반환
+  return targetCodeStr;
+}
+
+// 블록 및 하위 체인(next, statements)의 모든 ID를 새 해시로 갱신
+function regenerateBlockIds(blockObj: any): any {
+  if (!blockObj) return blockObj;
+  if (Array.isArray(blockObj)) {
+    return blockObj.map(regenerateBlockIds);
+  }
+  if (typeof blockObj === 'object') {
+    const clone = { ...blockObj };
+    clone.id = generateEntryHash();
+    if (clone.next) {
+      clone.next = regenerateBlockIds(clone.next);
+    }
+    if (Array.isArray(clone.statements)) {
+      clone.statements = clone.statements.map(regenerateBlockIds);
+    }
+    if (Array.isArray(clone.params)) {
+      clone.params = clone.params.map((p: any) => (p && typeof p === 'object' ? regenerateBlockIds(p) : p));
+    }
+    return clone;
+  }
+  return blockObj;
+}
+
+// 스크립트 트리 전체의 키보드 블록 파라미터 재귀적 정규화
+function normalizeScriptKeyParams(scriptData: any): any {
+  if (!scriptData) return scriptData;
+  if (Array.isArray(scriptData)) {
+    return scriptData.map(normalizeScriptKeyParams);
+  }
+  if (typeof scriptData === 'object') {
+    const clone = { ...scriptData };
+    if (
+      (clone.type === 'when_some_key_pressed' ||
+        clone.type === 'is_press_some_key' ||
+        clone.type === 'when_key_press') &&
+      Array.isArray(clone.params) &&
+      clone.params.length > 0
+    ) {
+      clone.params[0] = normalizeEntryKeyParam(clone.type, clone.params[0]);
+    }
+    if (clone.next) {
+      clone.next = normalizeScriptKeyParams(clone.next);
+    }
+    if (Array.isArray(clone.statements)) {
+      clone.statements = clone.statements.map(normalizeScriptKeyParams);
+    }
+    if (Array.isArray(clone.params)) {
+      clone.params = clone.params.map((p: any) => (p && typeof p === 'object' ? normalizeScriptKeyParams(p) : p));
+    }
+    return clone;
+  }
+  return scriptData;
 }
 
 // =========================================================
@@ -1929,6 +2082,17 @@ function loadCodeToEntry(codeData: any) {
         }
       }
 
+      // 만약 키보드 키 블록(when_some_key_pressed, is_press_some_key, when_key_press 등)이면 파라미터 정규화하여 '대상 없음' 방지
+      if (
+        (clone.type === 'when_some_key_pressed' ||
+          clone.type === 'is_press_some_key' ||
+          clone.type === 'when_key_press') &&
+        Array.isArray(clone.params) &&
+        clone.params.length > 0
+      ) {
+        clone.params[0] = normalizeEntryKeyParam(clone.type, clone.params[0]);
+      }
+
       return clone;
     }
     return blockObj;
@@ -1959,8 +2123,7 @@ function loadCodeToEntry(codeData: any) {
     const startY = 60;
 
     const preparedBlocks = threadBlocks.map((b: any, bIdx: number) => {
-      const clone = JSON.parse(JSON.stringify(b));
-      clone.id = generateEntryHash();
+      const clone = regenerateBlockIds(JSON.parse(JSON.stringify(b)));
       if (bIdx === 0) {
         clone.x = clone.x !== undefined && clone.x !== null ? Number(clone.x) : startX;
         clone.y = clone.y !== undefined && clone.y !== null ? Number(clone.y) : startY;
