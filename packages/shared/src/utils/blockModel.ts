@@ -172,18 +172,117 @@ export interface ParsedTemplateSegment {
 }
 
 /**
+ * 엔트리 공식 모든 키보드 키 코드 및 키 이름 매핑 테이블
+ */
+export const ENTRY_KEY_CODE_MAP: Record<string, string> = {
+  // 특수/제어 키
+  '8': '백스페이스',
+  '9': '탭',
+  '13': '엔터',
+  '16': '쉬프트',
+  '17': '컨트롤',
+  '18': '알트',
+  '20': '캡스락',
+  '27': 'ESC',
+  '32': '스페이스',
+  '33': '페이지업',
+  '34': '페이지다운',
+  '35': '엔드',
+  '36': '홈',
+  '37': '왼쪽 화살표',
+  '38': '위쪽 화살표',
+  '39': '오른쪽 화살표',
+  '40': '아래쪽 화살표',
+  '45': '인서트',
+  '46': '딜리트',
+  '91': '윈도우',
+  '92': '윈도우',
+  '93': '메뉴',
+  '144': '넘버락',
+  '145': '스크롤락',
+
+  // 숫자 키 0-9
+  '48': '0', '49': '1', '50': '2', '51': '3', '52': '4',
+  '53': '5', '54': '6', '55': '7', '56': '8', '57': '9',
+
+  // 영문 알파벳 키 a-z
+  '65': 'a', '66': 'b', '67': 'c', '68': 'd', '69': 'e',
+  '70': 'f', '71': 'g', '72': 'h', '73': 'i', '74': 'j',
+  '75': 'k', '76': 'l', '77': 'm', '78': 'n', '79': 'o',
+  '80': 'p', '81': 'q', '82': 'r', '83': 's', '84': 't',
+  '85': 'u', '86': 'v', '87': 'w', '88': 'x', '89': 'y', '90': 'z',
+
+  // 숫자패드 (Numpad)
+  '96': '숫자패드 0', '97': '숫자패드 1', '98': '숫자패드 2', '99': '숫자패드 3', '100': '숫자패드 4',
+  '101': '숫자패드 5', '102': '숫자패드 6', '103': '숫자패드 7', '104': '숫자패드 8', '105': '숫자패드 9',
+  '106': '숫자패드 *', '107': '숫자패드 +', '109': '숫자패드 -', '110': '숫자패드 .', '111': '숫자패드 /',
+
+  // 기능 키 F1-F12
+  '112': 'F1', '113': 'F2', '114': 'F3', '115': 'F4', '116': 'F5', '117': 'F6',
+  '118': 'F7', '119': 'F8', '120': 'F9', '121': 'F10', '122': 'F11', '123': 'F12',
+
+  // 기호 및 문장부호 키
+  '186': ';', '187': '=', '188': ',', '189': '-', '190': '.', '191': '/',
+  '192': '`', '219': '[', '220': '\\', '221': ']', '222': '\'',
+
+  // 영문 키 이름 매핑
+  'all': '모든',
+  'space': '스페이스',
+  'enter': '엔터',
+  'up': '위쪽 화살표',
+  'down': '아래쪽 화살표',
+  'left': '왼쪽 화살표',
+  'right': '오른쪽 화살표',
+  'shift': '쉬프트',
+  'ctrl': '컨트롤',
+  'alt': '알트',
+  'backspace': '백스페이스',
+  'tab': '탭',
+  'esc': 'ESC',
+  'escape': 'ESC',
+  'delete': '딜리트',
+  'insert': '인서트',
+};
+
+/**
  * 엔트리 함수 블록의 정의로부터 사용자 함수 이름을 추출합니다.
  */
 export function extractFunctionNameFromDef(funcDef: any): string {
   if (!funcDef) return '';
   if (typeof funcDef === 'string') return funcDef;
+
+  // 1. content JSON 문자열에서 function_field_label의 params 텍스트 직접 정규식 추출 (최우선)
+  const contentStr =
+    typeof funcDef.content === 'string'
+      ? funcDef.content
+      : JSON.stringify(funcDef.content || '');
+  if (contentStr) {
+    const directRegex = /"type"\s*:\s*"function_field_label"\s*,\s*"params"\s*:\s*\[\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i;
+    const match = directRegex.exec(contentStr);
+    if (match && match[1]) {
+      const clean = match[1].replace(/\\"/g, '"').trim();
+      if (clean) return clean;
+    }
+    const reverseRegex = /"params"\s*:\s*\[\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*\]\s*,\s*"type"\s*:\s*"function_field_label"/i;
+    const match2 = reverseRegex.exec(contentStr);
+    if (match2 && match2[1]) {
+      const clean = match2[1].replace(/\\"/g, '"').trim();
+      if (clean) return clean;
+    }
+  }
+
+  // 2. template 필드 파싱
   if (funcDef.template) {
     const clean = String(funcDef.template).replace(/%\d+/g, '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (clean) return clean;
   }
+
+  // 3. description 필드 파싱
   if (funcDef.description && typeof funcDef.description === 'string' && funcDef.description.trim()) {
     return funcDef.description.trim();
   }
+
+  // 4. name 또는 title 필드 파싱 (기본 명칭이 아닌 실제 이름일 때)
   if (funcDef.name && funcDef.name !== '함수' && funcDef.name !== '함수 정의') return funcDef.name;
   if (funcDef.title && funcDef.title !== '함수' && funcDef.title !== '함수 정의') return funcDef.title;
 
@@ -205,11 +304,14 @@ export function extractFunctionNameFromDef(funcDef: any): string {
         const found = findLabel(node.params);
         if (found) return found;
       }
+      if (node.statements && Array.isArray(node.statements)) {
+        const found = findLabel(node.statements);
+        if (found) return found;
+      }
     }
     return null;
   }
 
-  // 1. content 필드 (함수 목록에서 저장된 Func 인스턴스)
   let content = funcDef.content;
   if (typeof content === 'string') {
     try { content = JSON.parse(content); } catch { content = null; }
@@ -219,9 +321,6 @@ export function extractFunctionNameFromDef(funcDef: any): string {
     if (label) return label;
   }
 
-  // 2. def_functions 블록의 params 필드 직접 탐색
-  // 구조: params = [ [function_field_label, function_param_string, ...] ]
-  // 또는:  params = [ function_field_label, function_param_string, ... ]
   if (funcDef.params) {
     const label = findLabel(funcDef.params);
     if (label) return label;
@@ -316,8 +415,9 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
       found = functions[0];
     }
 
-    // 1. 엔트리 공식 템플릿(template) 지원: found.template 또는 런타임 Entry.block[type].template
+    // 1. 엔트리 공식 템플릿(template) 지원: block.template 또는 found.template 또는 런타임 Entry.block[type].template
     const activeTemplate: string | null =
+      block?.template ||
       found?.template ||
       ((typeof window !== 'undefined' && (window as any).Entry?.block?.[type]?.template)
         ? (window as any).Entry.block[type].template
@@ -389,7 +489,19 @@ export function parseBlockSegments(block: any, functions: any[] = [], ctx?: { pi
     }
 
     // 3. 정의 없는 경우 폴백: 함수명 + 파라미터 나열 (사용자 수정 함수명/라벨 우선)
-    const funcName = found ? extractFunctionNameFromDef(found) || found.name || '함수' : '함수';
+    const runtimeName =
+      typeof window !== 'undefined'
+        ? ((window as any).Entry?.variableContainer?.functions_?.find?.((f: any) => (f.id || f._id) === funcId)?.name ||
+           (window as any).Entry?.block?.[type]?.template?.replace(/%\d+/g, '')?.trim())
+        : null;
+
+    const funcName =
+      (found ? extractFunctionNameFromDef(found) || found.name : '') ||
+      block?.funcName ||
+      block?.name ||
+      runtimeName ||
+      found?.description ||
+      '함수';
     const segments: ParsedTemplateSegment[] = [{ type: 'text', text: funcName }];
     params.forEach((param, idx) => {
       if (param === null || param === undefined) return;
@@ -609,21 +721,15 @@ export function getFuncDefFieldBlocks(funcDef: any): any[] {
 export function formatParamValue(param: any, ctx?: { pictures?: any[]; sounds?: any[] }): string {
   if (param === null || param === undefined) return '';
 
+  // 1. 엔트리 모든 키코드 (숫자 또는 문자열) -> 한글 이름 변환
+  if (typeof param === 'number' || typeof param === 'string') {
+    const rawStr = String(param).trim().toLowerCase();
+    if (ENTRY_KEY_CODE_MAP[rawStr]) {
+      return ENTRY_KEY_CODE_MAP[rawStr];
+    }
+  }
+
   if (typeof param === 'string') {
-    // 엔트리 키코드 숫자 문자열 → 한글 이름 변환
-    const KEY_CODE_MAP: Record<string, string> = {
-      '32': '스페이스',
-      '13': '엔터',
-      '37': '왼쪽 화살표', '38': '위쪽 화살표', '39': '오른쪽 화살표', '40': '아래쪽 화살표',
-      '48': '0', '49': '1', '50': '2', '51': '3', '52': '4',
-      '53': '5', '54': '6', '55': '7', '56': '8', '57': '9',
-      '65': 'a', '66': 'b', '67': 'c', '68': 'd', '69': 'e',
-      '70': 'f', '71': 'g', '72': 'h', '73': 'i', '74': 'j',
-      '75': 'k', '76': 'l', '77': 'm', '78': 'n', '79': 'o',
-      '80': 'p', '81': 'q', '82': 'r', '83': 's', '84': 't',
-      '85': 'u', '86': 'v', '87': 'w', '88': 'x', '89': 'y', '90': 'z',
-    };
-    if (KEY_CODE_MAP[param]) return KEY_CODE_MAP[param];
     return dropdownMap[param] || param;
   }
 

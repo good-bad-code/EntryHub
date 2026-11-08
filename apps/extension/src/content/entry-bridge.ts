@@ -494,7 +494,26 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
     const blockJson = typeof targetBlock.toJSON === 'function' ? targetBlock.toJSON(false) : targetBlock;
     const initialTitle = getEntryBlockTitle(targetBlock);
     // 선택된 타깃 블록에서 참조하는 함수 및 그 내부 함수들만 선별 (무관한 n개 함수 전체 포함 차단)
-    const selectedFunctions = filterFunctionsForBlock(blockJson, deps.functions);
+    let selectedFunctions = filterFunctionsForBlock(blockJson, deps.functions);
+    if (selectedFunctions.length === 0 && (blockJson?.type?.startsWith('func_') || blockJson?.type === 'def_functions') && deps.functions.length > 0) {
+      selectedFunctions = deps.functions;
+    }
+
+    // 함수 블록 메타데이터(template, funcName)를 블록 객체에 직접 각인하여 영구 보존
+    if (blockJson && typeof blockJson === 'object' && blockJson.type) {
+      const bType = blockJson.type;
+      if (bType.startsWith('func_')) {
+        const fId = bType.slice(5);
+        const fMatch = deps.functions.find((x: any) => (x.id || x._id) === fId || (x.id || x._id) === bType) || deps.functions[0];
+        if (fMatch) {
+          blockJson.template = fMatch.template || blockJson.template;
+          blockJson.funcName = fMatch.name || blockJson.funcName;
+        }
+        if (!blockJson.template && (Entry as any)?.block?.[bType]?.template) {
+          blockJson.template = (Entry as any).block[bType].template;
+        }
+      }
+    }
 
     let objPictures: any[] = [];
     let objSounds: any[] = [];

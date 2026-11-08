@@ -9,6 +9,8 @@ import {
   Eye,
   EyeOff,
   Cpu,
+  Sliders,
+  Zap,
 } from 'lucide-react';
 import { ThemeColors } from '@entry-hub/shared';
 import { StartupTabSetting, getStartupTabSetting, setStartupTabSetting } from '../App';
@@ -27,6 +29,9 @@ interface SettingsTabProps {
 }
 
 export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps) {
+  // 서브 탭 분리: 'GENERAL' (기본 설정) | 'HUBER_API' (허버 AI / API 설정)
+  const [subTab, setSubTab] = useState<'GENERAL' | 'HUBER_API'>('GENERAL');
+
   // 시작 탭 설정
   const [selectedSetting, setSelectedSetting] = useState<StartupTabSetting>(() => getStartupTabSetting());
   const [isSavedFeedback, setIsSavedFeedback] = useState(false);
@@ -67,9 +72,17 @@ export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps)
     }, 1800);
   };
 
-  // 허버 토글 변경
+  // 허버 토글 변경 (기본 설정 탭에서 제어)
   const handleToggleHuber = (enabled: boolean) => {
     const updated = { ...huberSettings, enabled };
+    setHuberSettings(updated);
+    saveHuberSettings(updated);
+    triggerHuberSavedFeedback();
+  };
+
+  // 허버 토큰 절감 모드 토글 변경 (허버 설정 탭에서 제어)
+  const handleToggleTokenSaving = (tokenSavingMode: boolean) => {
+    const updated = { ...huberSettings, tokenSavingMode };
     setHuberSettings(updated);
     saveHuberSettings(updated);
     triggerHuberSavedFeedback();
@@ -104,7 +117,7 @@ export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps)
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '32px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '32px' }}>
       {/* 헤더 */}
       <div
         style={{
@@ -157,330 +170,515 @@ export function SettingsTab({ activeColors, onBack, onSaved }: SettingsTabProps)
         )}
       </div>
 
-      {/* ============================================================== */}
-      {/* 섹션 1: 허버 (AI 어시스턴트) Beta 설정                          */}
-      {/* ============================================================== */}
+      {/* 서브 탭 스위처: [기본 설정] vs [허버 AI / API 설정] */}
       <div
         style={{
           display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          padding: '16px',
-          borderRadius: '12px',
-          backgroundColor: activeColors.canvasSoft,
+          backgroundColor: activeColors.canvasSoft2,
+          padding: '4px',
+          borderRadius: '10px',
           border: `1px solid ${activeColors.hairline}`,
+          gap: '4px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                background: activeColors.gradientDevelop,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                flexShrink: 0,
-              }}
-            >
-              <Sparkles size={16} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
-                  허버 (Huber) AI 어시스턴트
-                </span>
-                <span
-                  style={{
-                    padding: '2px 5px',
-                    borderRadius: '4px',
-                    backgroundColor: `${activeColors.primary}20`,
-                    color: activeColors.primary,
-                    fontSize: '10px',
-                    fontWeight: 700,
-                  }}
-                >
-                  Beta
-                </span>
-              </div>
-              <p style={{ margin: '2px 0 0', fontSize: '11px', color: activeColors.mute, lineHeight: 1.4 }}>
-                자연어로 엔트리 블록 코드를 생성하고 시뮬레이션 후 에디터에 적용합니다.
-              </p>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => setSubTab('GENERAL')}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '8px 12px',
+            borderRadius: '7px',
+            border: 'none',
+            backgroundColor: subTab === 'GENERAL' ? activeColors.canvas : 'transparent',
+            color: subTab === 'GENERAL' ? activeColors.ink : activeColors.mute,
+            fontWeight: subTab === 'GENERAL' ? 700 : 500,
+            fontSize: '12px',
+            cursor: 'pointer',
+            boxShadow: subTab === 'GENERAL' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Sliders size={14} color={subTab === 'GENERAL' ? activeColors.primary : activeColors.mute} />
+          <span>기본 설정</span>
+        </button>
 
-          {/* 토글 스위치 (축소 방지 및 정확한 여백 배치) */}
-          <label
+        <button
+          type="button"
+          onClick={() => setSubTab('HUBER_API')}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '8px 12px',
+            borderRadius: '7px',
+            border: 'none',
+            backgroundColor: subTab === 'HUBER_API' ? activeColors.canvas : 'transparent',
+            color: subTab === 'HUBER_API' ? activeColors.ink : activeColors.mute,
+            fontWeight: subTab === 'HUBER_API' ? 700 : 500,
+            fontSize: '12px',
+            cursor: 'pointer',
+            boxShadow: subTab === 'HUBER_API' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Sparkles size={14} color={subTab === 'HUBER_API' ? activeColors.primary : activeColors.mute} />
+          <span>허버 AI / API 설정</span>
+        </button>
+      </div>
+
+      {/* ============================================================== */}
+      {/* 탭 1: 기본 설정 (허버 ON/OFF + 시작 탭 선택)                      */}
+      {/* ============================================================== */}
+      {subTab === 'GENERAL' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* 허버 On/Off 토글 카드 */}
+          <div
             style={{
-              position: 'relative',
-              display: 'inline-block',
-              width: '42px',
-              height: '24px',
-              flexShrink: 0,
-              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              padding: '16px',
+              borderRadius: '12px',
+              backgroundColor: activeColors.canvasSoft,
+              border: `1px solid ${activeColors.hairline}`,
             }}
           >
-            <input
-              type="checkbox"
-              checked={huberSettings.enabled}
-              onChange={(e) => handleToggleHuber(e.target.checked)}
-              style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
-            />
-            <span
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: activeColors.gradientDevelop,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  flexShrink: 0,
+                }}
+              >
+                <Sparkles size={16} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
+                    허버 (Huber) AI 기능 사용
+                  </span>
+                  <span
+                    style={{
+                      padding: '2px 5px',
+                      borderRadius: '4px',
+                      backgroundColor: `${activeColors.primary}20`,
+                      color: activeColors.primary,
+                      fontSize: '10px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Beta
+                  </span>
+                </div>
+                <p style={{ margin: '3px 0 0', fontSize: '11px', color: activeColors.mute, lineHeight: 1.4 }}>
+                  {huberSettings.enabled
+                    ? '상단 탭 바에 허버 AI 어시스턴트 탭이 표시됩니다.'
+                    : '허버 AI 어시스턴트 탭이 비활성화되어 숨겨집니다.'}
+                </p>
+              </div>
+            </div>
+
+            {/* 토글 스위치 */}
+            <label
               style={{
-                position: 'absolute',
-                inset: 0,
-                borderRadius: '24px',
-                backgroundColor: huberSettings.enabled ? activeColors.primary : activeColors.hairlineStrong,
-                transition: 'background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                display: 'block',
+                position: 'relative',
+                display: 'inline-block',
+                width: '42px',
+                height: '24px',
+                flexShrink: 0,
+                cursor: 'pointer',
               }}
             >
+              <input
+                type="checkbox"
+                checked={huberSettings.enabled}
+                onChange={(e) => handleToggleHuber(e.target.checked)}
+                style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+              />
               <span
                 style={{
                   position: 'absolute',
-                  top: '3px',
-                  left: huberSettings.enabled ? '21px' : '3px',
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '50%',
-                  backgroundColor: '#ffffff',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
-                  transition: 'left 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  inset: 0,
+                  borderRadius: '24px',
+                  backgroundColor: huberSettings.enabled ? activeColors.primary : activeColors.hairlineStrong,
+                  transition: 'background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                   display: 'block',
                 }}
-              />
-            </span>
-          </label>
-        </div>
-
-        {huberSettings.enabled ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '6px' }}>
-            {/* 기본 모델 선택 드롭다운 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: activeColors.ink, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Cpu size={12} color={activeColors.primary} />
-                <span>기본 사용할 AI 모델</span>
-              </label>
-              <select
-                value={huberSettings.selectedModel}
-                onChange={(e) => handleModelChange(e.target.value as HuberModelId)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: `1px solid ${activeColors.hairlineStrong}`,
-                  backgroundColor: activeColors.canvas,
-                  color: activeColors.ink,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
               >
-                {HUBER_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.providerName})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 보안 안내 뱃지 */}
-            <div
-              style={{
-                padding: '8px 10px',
-                borderRadius: '6px',
-                backgroundColor: `${activeColors.primary}10`,
-                border: `1px solid ${activeColors.primary}25`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <ShieldCheck size={14} color={activeColors.primary} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '11px', color: activeColors.ink, lineHeight: 1.4 }}>
-                <strong>로컬 보안 원칙:</strong> 입력하신 API 키는 브라우저 내부(localStorage)에만 안전하게 저장되며, 어떠한 외부 서버로도 전송되지 않습니다.
-              </span>
-            </div>
-
-            {/* API 키 등록 리스트 (5개 제공사) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: activeColors.mute, textTransform: 'uppercase' }}>
-                제공사별 API 키 관리
-              </span>
-
-              {[
-                { provider: 'gemini' as const, label: 'Google Gemini API 키', placeholder: 'AIzaSy...' },
-                { provider: 'openai' as const, label: 'OpenAI (GPT) API 키', placeholder: 'sk-proj-...' },
-                { provider: 'anthropic' as const, label: 'Anthropic (Claude) API 키', placeholder: 'sk-ant-...' },
-                { provider: 'deepseek' as const, label: 'DeepSeek API 키', placeholder: 'sk-...' },
-                { provider: 'groq' as const, label: 'Groq API 키', placeholder: 'gsk_...' },
-              ].map(({ provider, label, placeholder }) => {
-                const currentVal = huberSettings.apiKeys[provider] || '';
-                const isShowing = !!showKeyMap[provider];
-
-                return (
-                  <div key={provider} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 600, color: activeColors.ink }}>
-                        {label}
-                      </span>
-                      {currentVal && (
-                        <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 600 }}>
-                          등록됨
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <input
-                        type={isShowing ? 'text' : 'password'}
-                        value={currentVal}
-                        onChange={(e) => handleApiKeyChange(provider, e.target.value)}
-                        placeholder={placeholder}
-                        style={{
-                          flex: 1,
-                          padding: '7px 10px',
-                          borderRadius: '6px',
-                          border: `1px solid ${activeColors.hairlineStrong}`,
-                          backgroundColor: activeColors.canvas,
-                          color: activeColors.ink,
-                          fontSize: '11px',
-                          outline: 'none',
-                          fontFamily: 'monospace',
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => toggleShowKey(provider)}
-                        style={{
-                          background: activeColors.canvasSoft2,
-                          border: `1px solid ${activeColors.hairline}`,
-                          borderRadius: '6px',
-                          padding: '0 8px',
-                          cursor: 'pointer',
-                          color: activeColors.mute,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        title={isShowing ? '숨기기' : '보기'}
-                      >
-                        {isShowing ? <EyeOff size={13} /> : <Eye size={13} />}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: '11px', color: activeColors.mute }}>
-            허버 기능이 비활성화되었습니다. 사이드바 탭 메뉴에서 Beta 탭이 숨겨집니다.
-          </div>
-        )}
-      </div>
-
-      {/* ============================================================== */}
-      {/* 섹션 2: 사이드 패널 시작 탭 선택                              */}
-      {/* ============================================================== */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <label style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
-          사이드 패널 시작 탭 선택
-        </label>
-        <p style={{ margin: 0, fontSize: '12px', color: activeColors.body, lineHeight: '1.5' }}>
-          확장 프로그램 사이드 패널을 열었을 때 가장 먼저 표시할 기본 탭을 설정합니다.
-        </p>
-
-        {/* 드롭다운 셀렉트 */}
-        <select
-          value={selectedSetting}
-          onChange={(e) => handleSelectTab(e.target.value as StartupTabSetting)}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            border: `1.5px solid ${activeColors.hairlineStrong}`,
-            backgroundColor: activeColors.canvas,
-            color: activeColors.ink,
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            outline: 'none',
-            marginTop: '4px',
-          }}
-        >
-          {tabOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* 시작 탭 옵션 리스트 뷰 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: activeColors.mute, textTransform: 'uppercase' }}>
-          시작 탭 안내
-        </div>
-        {tabOptions.map((opt) => {
-          const isSelected = selectedSetting === opt.value;
-          return (
-            <div
-              key={opt.value}
-              onClick={() => handleSelectTab(opt.value)}
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                border: `1px solid ${isSelected ? activeColors.primary : activeColors.hairline}`,
-                backgroundColor: isSelected ? activeColors.canvasSoft2 : activeColors.canvas,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <span
                   style={{
-                    fontSize: '12px',
-                    fontWeight: isSelected ? 700 : 600,
-                    color: isSelected ? activeColors.primary : activeColors.ink,
-                  }}
-                >
-                  {opt.label}
-                </span>
-                <span style={{ fontSize: '11px', color: activeColors.body, lineHeight: '1.4' }}>
-                  {opt.desc}
-                </span>
-              </div>
-              {isSelected && (
-                <div
-                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    left: huberSettings.enabled ? '21px' : '3px',
                     width: '18px',
                     height: '18px',
                     borderRadius: '50%',
-                    backgroundColor: activeColors.primary,
-                    color: activeColors.onPrimary,
+                    backgroundColor: '#ffffff',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                    transition: 'left 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                    display: 'block',
+                  }}
+                />
+              </span>
+            </label>
+          </div>
+
+          {/* 사이드 패널 시작 탭 선택 섹션 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
+              사이드 패널 시작 탭 선택
+            </label>
+            <p style={{ margin: 0, fontSize: '12px', color: activeColors.body, lineHeight: '1.5' }}>
+              확장 프로그램 사이드 패널을 열었을 때 가장 먼저 표시할 기본 탭을 설정합니다.
+            </p>
+
+            {/* 드롭다운 셀렉트 */}
+            <select
+              value={selectedSetting}
+              onChange={(e) => handleSelectTab(e.target.value as StartupTabSetting)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1.5px solid ${activeColors.hairlineStrong}`,
+                backgroundColor: activeColors.canvas,
+                color: activeColors.ink,
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                marginTop: '4px',
+              }}
+            >
+              {tabOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 시작 탭 옵션 리스트 뷰 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: activeColors.mute, textTransform: 'uppercase' }}>
+              시작 탭 안내
+            </div>
+            {tabOptions.map((opt) => {
+              const isSelected = selectedSetting === opt.value;
+              return (
+                <div
+                  key={opt.value}
+                  onClick={() => handleSelectTab(opt.value)}
+                  style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    marginTop: '2px',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isSelected ? activeColors.primary : activeColors.hairline}`,
+                    backgroundColor: isSelected ? activeColors.canvasSoft2 : activeColors.canvas,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <Check size={11} strokeWidth={3} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <span
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: isSelected ? 700 : 600,
+                        color: isSelected ? activeColors.primary : activeColors.ink,
+                      }}
+                    >
+                      {opt.label}
+                    </span>
+                    <span style={{ fontSize: '11px', color: activeColors.body, lineHeight: '1.4' }}>
+                      {opt.desc}
+                    </span>
+                  </div>
+                  {isSelected && (
+                    <div
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        borderRadius: '50%',
+                        backgroundColor: activeColors.primary,
+                        color: activeColors.onPrimary,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: '2px',
+                      }}
+                    >
+                      <Check size={11} strokeWidth={3} />
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* 탭 2: 허버 AI / API 설정 (모델, 토큰 절감 모드, API 키)          */}
+      {/* ============================================================== */}
+      {subTab === 'HUBER_API' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* 기본 모델 선택 드롭다운 */}
+          <div
+            style={{
+              padding: '14px',
+              borderRadius: '12px',
+              backgroundColor: activeColors.canvasSoft,
+              border: `1px solid ${activeColors.hairline}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            <label style={{ fontSize: '12px', fontWeight: 700, color: activeColors.ink, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Cpu size={14} color={activeColors.primary} />
+              <span>기본 사용할 AI 모델 선택</span>
+            </label>
+            <select
+              value={huberSettings.selectedModel}
+              onChange={(e) => handleModelChange(e.target.value as HuberModelId)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                border: `1px solid ${activeColors.hairlineStrong}`,
+                backgroundColor: activeColors.canvas,
+                color: activeColors.ink,
+                fontSize: '12px',
+                fontWeight: 600,
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {HUBER_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.providerName})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 토큰 절감 모드 토글 카드 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              padding: '14px',
+              borderRadius: '12px',
+              backgroundColor: activeColors.canvasSoft,
+              border: `1px solid ${huberSettings.tokenSavingMode ? '#10b981' : activeColors.hairline}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  backgroundColor: huberSettings.tokenSavingMode ? '#10b981' : activeColors.canvasSoft2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: huberSettings.tokenSavingMode ? '#ffffff' : activeColors.mute,
+                  flexShrink: 0,
+                }}
+              >
+                <Zap size={16} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: activeColors.ink }}>
+                    토큰 절감 모드 (답변 멘트 생략)
+                  </span>
+                  {huberSettings.tokenSavingMode && (
+                    <span
+                      style={{
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        backgroundColor: '#10b98120',
+                        color: '#10b981',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      절약 중
+                    </span>
+                  )}
+                </div>
+                <p style={{ margin: '3px 0 0', fontSize: '11px', color: activeColors.mute, lineHeight: 1.4 }}>
+                  활성화 시 허버가 불필요한 인사말이나 설명 멘트를 일절 출력하지 않고, 블록 코드만 즉시 전달하여 토큰 소비를 대폭 절약합니다.
+                </p>
+              </div>
             </div>
-          );
-        })}
-      </div>
+
+            {/* 토글 스위치 */}
+            <label
+              style={{
+                position: 'relative',
+                display: 'inline-block',
+                width: '42px',
+                height: '24px',
+                flexShrink: 0,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!huberSettings.tokenSavingMode}
+                onChange={(e) => handleToggleTokenSaving(e.target.checked)}
+                style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+              />
+              <span
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: '24px',
+                  backgroundColor: huberSettings.tokenSavingMode ? '#10b981' : activeColors.hairlineStrong,
+                  transition: 'background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  display: 'block',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    left: huberSettings.tokenSavingMode ? '21px' : '3px',
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ffffff',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                    transition: 'left 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                    display: 'block',
+                  }}
+                />
+              </span>
+            </label>
+          </div>
+
+          {/* 로컬 보안 안내 뱃지 */}
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: '8px',
+              backgroundColor: `${activeColors.primary}10`,
+              border: `1px solid ${activeColors.primary}25`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <ShieldCheck size={16} color={activeColors.primary} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '11px', color: activeColors.ink, lineHeight: 1.4 }}>
+              <strong>로컬 보안 원칙:</strong> 입력하신 API 키는 브라우저 내부(localStorage)에만 안전하게 저장되며, 어떠한 외부 서버로도 전송되지 않습니다.
+            </span>
+          </div>
+
+          {/* API 키 등록 리스트 (5개 제공사) */}
+          <div
+            style={{
+              padding: '14px',
+              borderRadius: '12px',
+              backgroundColor: activeColors.canvasSoft,
+              border: `1px solid ${activeColors.hairline}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 700, color: activeColors.mute, textTransform: 'uppercase' }}>
+              제공사별 API 키 관리
+            </span>
+
+            {[
+              { provider: 'gemini' as const, label: 'Google Gemini API 키 (권장)', placeholder: 'AIzaSy...' },
+              { provider: 'openai' as const, label: 'OpenAI (GPT) API 키', placeholder: 'sk-proj-...' },
+              { provider: 'anthropic' as const, label: 'Anthropic (Claude) API 키', placeholder: 'sk-ant-...' },
+              { provider: 'deepseek' as const, label: 'DeepSeek API 키', placeholder: 'sk-...' },
+              { provider: 'groq' as const, label: 'Groq API 키', placeholder: 'gsk_...' },
+            ].map(({ provider, label, placeholder }) => {
+              const currentVal = huberSettings.apiKeys[provider] || '';
+              const isShowing = !!showKeyMap[provider];
+
+              return (
+                <div key={provider} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: activeColors.ink }}>
+                      {label}
+                    </span>
+                    {currentVal && (
+                      <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 600 }}>
+                        등록됨
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <input
+                      type={isShowing ? 'text' : 'password'}
+                      value={currentVal}
+                      onChange={(e) => handleApiKeyChange(provider, e.target.value)}
+                      placeholder={placeholder}
+                      style={{
+                        flex: 1,
+                        padding: '7px 10px',
+                        borderRadius: '6px',
+                        border: `1px solid ${activeColors.hairlineStrong}`,
+                        backgroundColor: activeColors.canvas,
+                        color: activeColors.ink,
+                        fontSize: '11px',
+                        outline: 'none',
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleShowKey(provider)}
+                      style={{
+                        background: activeColors.canvasSoft2,
+                        border: `1px solid ${activeColors.hairline}`,
+                        borderRadius: '6px',
+                        padding: '0 8px',
+                        cursor: 'pointer',
+                        color: activeColors.mute,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title={isShowing ? '숨기기' : '보기'}
+                    >
+                      {isShowing ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

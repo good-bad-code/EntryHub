@@ -256,7 +256,7 @@ export function VisualBlock({
         margin: isInline ? '0 2px' : undefined,
       }}
     >
-      {!isInline && !isFunction && (
+      {!isInline && (
         <span
           style={{
             fontSize: '9px',
@@ -290,31 +290,6 @@ export function VisualBlock({
           />
         );
       })}
-
-      {isFunction && (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '16px',
-            height: '16px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(0,0,0,0.25)',
-            color: '#ffffff',
-            fontSize: '11px',
-            fontStyle: 'italic',
-            fontWeight: 700,
-            fontFamily: 'serif',
-            marginLeft: '4px',
-            lineHeight: 1,
-            userSelect: 'none',
-          }}
-          title="함수 블록"
-        >
-          f
-        </span>
-      )}
     </div>
   );
 

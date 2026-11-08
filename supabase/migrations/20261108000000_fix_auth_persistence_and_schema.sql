@@ -170,6 +170,7 @@ BEGIN
       phone_change,
       phone_change_token,
       reauthentication_token,
+      email_change_confirm_status,
       is_sso_user,
       is_anonymous
     ) VALUES (
@@ -196,6 +197,7 @@ BEGIN
       '',
       '',
       '',
+      0,
       FALSE,
       FALSE
     );
@@ -249,13 +251,14 @@ BEGIN
       NULL,
       FALSE,
       NULL,
-      'USER'
+      CASE WHEN v_verification.entry_user_id = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE 'USER' END
     ) ON CONFLICT (id) DO UPDATE
     SET
       email = EXCLUDED.email,
       entry_user_id = EXCLUDED.entry_user_id,
       entry_profile_url = COALESCE(EXCLUDED.entry_profile_url, public.users.entry_profile_url),
-      nickname = EXCLUDED.nickname;
+      nickname = EXCLUDED.nickname,
+      role = CASE WHEN EXCLUDED.entry_user_id = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE public.users.role END;
 
   ELSE
     -- LOGIN 또는 LINK_ID 모드: 계정이 없으면 가입 유도 안내
@@ -266,12 +269,13 @@ BEGIN
       );
     END IF;
 
-    -- 기존 회원: 고유번호 및 최신 정보 동기화 (password_hash 및 custom_id는 절대 건드리지 않음)
+    -- 기존 회원: 고유번호 및 최신 정보 동기화 (관리자 지정 포함, password_hash 및 custom_id는 절대 건드리지 않음)
     UPDATE public.users
     SET
       entry_user_id = COALESCE(public.users.entry_user_id, v_verification.entry_user_id),
       entry_profile_url = COALESCE(v_entry_profile_url, public.users.entry_profile_url),
       nickname = COALESCE(public.users.nickname, v_nickname),
+      role = CASE WHEN COALESCE(public.users.entry_user_id, v_verification.entry_user_id) = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE public.users.role END,
       updated_at = NOW()
     WHERE id = v_user_id;
 
@@ -333,6 +337,7 @@ BEGIN
       phone_change = COALESCE(phone_change, ''),
       phone_change_token = COALESCE(phone_change_token, ''),
       reauthentication_token = COALESCE(reauthentication_token, ''),
+      email_change_confirm_status = COALESCE(email_change_confirm_status, 0),
       is_sso_user = COALESCE(is_sso_user, FALSE),
       is_anonymous = COALESCE(is_anonymous, FALSE)
   WHERE id = v_user_id;
@@ -531,6 +536,7 @@ BEGIN
       phone_change = COALESCE(phone_change, ''),
       phone_change_token = COALESCE(phone_change_token, ''),
       reauthentication_token = COALESCE(reauthentication_token, ''),
+      email_change_confirm_status = COALESCE(email_change_confirm_status, 0),
       is_sso_user = COALESCE(is_sso_user, FALSE),
       is_anonymous = COALESCE(is_anonymous, FALSE)
   WHERE id = v_user.id;
@@ -657,6 +663,7 @@ BEGIN
       phone_change = COALESCE(phone_change, ''),
       phone_change_token = COALESCE(phone_change_token, ''),
       reauthentication_token = COALESCE(reauthentication_token, ''),
+      email_change_confirm_status = COALESCE(email_change_confirm_status, 0),
       is_sso_user = COALESCE(is_sso_user, FALSE),
       is_anonymous = COALESCE(is_anonymous, FALSE)
   WHERE (p_email IS NULL OR email = p_email);
@@ -687,4 +694,44 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.repair_auth_user_schema(TEXT) TO anon, authenticated;
+
+-- ==============================================================================
+-- 11. restore_user_original_password RPC
+--     엔트리 로그인(signInWithPassword) 직후 호출되어,
+--     유저가 이전에 설정해둔 아이디/비밀번호 해시(public.users.password_hash)가 존재할 경우
+--     auth.users.encrypted_password를 원래 해시로 복구합니다.
+--     이를 통해 "엔트리로 로그인 한번 하면 아이디나 비번이 틀렸다고 뜨는 현상"을 영구히 방지합니다.
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.restore_user_original_password(p_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  v_saved_hash TEXT;
+BEGIN
+  SELECT password_hash INTO v_saved_hash
+  FROM public.users
+  WHERE id = p_user_id;
+
+  IF v_saved_hash IS NOT NULL AND v_saved_hash <> '' THEN
+    UPDATE auth.users
+    SET encrypted_password = v_saved_hash,
+        updated_at = NOW()
+    WHERE id = p_user_id;
+    RETURN jsonb_build_object('success', true, 'restored', true);
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'restored', false);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.restore_user_original_password(UUID) TO anon, authenticated;
+
+-- 12. 고유 관리자 권한 부여 (고유 번호: 6a17db19865137773fb9d8c9)
+UPDATE public.users
+SET role = 'ADMIN'
+WHERE entry_user_id = '6a17db19865137773fb9d8c9';
+
 

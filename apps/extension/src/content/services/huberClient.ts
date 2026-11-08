@@ -81,10 +81,23 @@ export async function generateHuberScript(
   modelId: HuberModelId,
   apiKey: string,
   userPrompt: string,
-  context?: Partial<HuberContext>
+  context?: Partial<HuberContext>,
+  options?: { tokenSavingMode?: boolean }
 ): Promise<HuberGenerateResult> {
   const modelInfo = HUBER_MODELS.find((m) => m.id === modelId) || HUBER_MODELS[0];
   const provider = modelInfo.provider;
+
+  // 토큰 절감 모드 여부에 따른 시스템 프롬프트 결정
+  let activeSystemPrompt = SYSTEM_PROMPT;
+  if (options?.tokenSavingMode) {
+    activeSystemPrompt = `당신은 교육용 블록 코딩 플랫폼 "엔트리(Entry)"의 전문 AI 코드 생성기입니다.
+[토큰 절감 모드 활성화됨]
+인사말, 코드 설명, 도입부, 마무리 멘트 등 한국어 텍스트는 0글자여야 합니다. 절대 출력하지 마십시오.
+오직 유효한 엔트리 블록 코드 JSON이 담긴 마크다운 json 블록(\`\`\`json ... \`\`\`) 하나만 출력하십시오.
+JSON 스키마:
+- 2차원 배열 형태 [[block1, block2], ...]
+- 각 블록: { id, type, x, y, params, statements }`;
+  }
 
   // 컨텍스트 프롬프트 구성
   let contextDescription = '';
@@ -104,25 +117,29 @@ ${JSON.stringify(context.currentScript || [], null, 2)}`;
   let rawResponseText = '';
 
   if (provider === 'gemini') {
-    rawResponseText = await callGemini(modelId, apiKey, fullPrompt);
+    rawResponseText = await callGemini(modelId, apiKey, fullPrompt, activeSystemPrompt);
   } else if (provider === 'openai') {
-    rawResponseText = await callOpenAI(modelId, apiKey, fullPrompt);
+    rawResponseText = await callOpenAI(modelId, apiKey, fullPrompt, activeSystemPrompt);
   } else if (provider === 'anthropic') {
-    rawResponseText = await callAnthropic(modelId, apiKey, fullPrompt);
+    rawResponseText = await callAnthropic(modelId, apiKey, fullPrompt, activeSystemPrompt);
   } else if (provider === 'deepseek') {
-    rawResponseText = await callDeepSeek(apiKey, fullPrompt);
+    rawResponseText = await callDeepSeek(apiKey, fullPrompt, activeSystemPrompt);
   } else if (provider === 'groq') {
-    rawResponseText = await callGroq(apiKey, fullPrompt);
+    rawResponseText = await callGroq(apiKey, fullPrompt, activeSystemPrompt);
   } else {
     throw new Error(`지원하지 않는 제공사: ${provider}`);
   }
 
   // 응답 파싱
-  return parseHuberResponse(rawResponseText);
+  const parsed = parseHuberResponse(rawResponseText);
+  if (options?.tokenSavingMode) {
+    parsed.explanation = '';
+  }
+  return parsed;
 }
 
 // 1. Google Gemini 호출 (동적 모델 발견 및 최신 모델 자동 전환 탑재)
-async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
+async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string, systemPromptText = SYSTEM_PROMPT): Promise<string> {
   const isPro = modelId === 'gemini-1.5-pro';
 
   const sendPayload = (url: string) =>
@@ -130,7 +147,7 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n[사용자 요청]\n${prompt}` }] }],
+        contents: [{ role: 'user', parts: [{ text: `${systemPromptText}\n\n[사용자 요청]\n${prompt}` }] }],
         generationConfig: {
           temperature: 0.2,
           topP: 0.9,
@@ -260,7 +277,7 @@ async function callGemini(modelId: HuberModelId, apiKey: string, prompt: string)
 }
 
 // 2. OpenAI 호출
-async function callOpenAI(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
+async function callOpenAI(modelId: HuberModelId, apiKey: string, prompt: string, systemPromptText = SYSTEM_PROMPT): Promise<string> {
   const openaiModel = modelId === 'gpt-4o' ? 'gpt-4o' : 'gpt-4o-mini';
   const url = 'https://api.openai.com/v1/chat/completions';
 
@@ -273,7 +290,7 @@ async function callOpenAI(modelId: HuberModelId, apiKey: string, prompt: string)
     body: JSON.stringify({
       model: openaiModel,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPromptText },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,
@@ -290,7 +307,7 @@ async function callOpenAI(modelId: HuberModelId, apiKey: string, prompt: string)
 }
 
 // 3. Anthropic Claude 호출
-async function callAnthropic(modelId: HuberModelId, apiKey: string, prompt: string): Promise<string> {
+async function callAnthropic(modelId: HuberModelId, apiKey: string, prompt: string, systemPromptText = SYSTEM_PROMPT): Promise<string> {
   const url = 'https://api.anthropic.com/v1/messages';
 
   const res = await fetch(url, {
@@ -303,7 +320,7 @@ async function callAnthropic(modelId: HuberModelId, apiKey: string, prompt: stri
     },
     body: JSON.stringify({
       model: 'claude-3-5-sonnet-20241022',
-      system: SYSTEM_PROMPT,
+      system: systemPromptText,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 4096,
       temperature: 0.2,
@@ -322,7 +339,7 @@ async function callAnthropic(modelId: HuberModelId, apiKey: string, prompt: stri
 }
 
 // 4. DeepSeek 호출
-async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
+async function callDeepSeek(apiKey: string, prompt: string, systemPromptText = SYSTEM_PROMPT): Promise<string> {
   const url = 'https://api.deepseek.com/chat/completions';
 
   const res = await fetch(url, {
@@ -334,7 +351,7 @@ async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
     body: JSON.stringify({
       model: 'deepseek-chat',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPromptText },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,
@@ -351,7 +368,7 @@ async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
 }
 
 // 5. Groq 호출
-async function callGroq(apiKey: string, prompt: string): Promise<string> {
+async function callGroq(apiKey: string, prompt: string, systemPromptText = SYSTEM_PROMPT): Promise<string> {
   const url = 'https://api.groq.com/openai/v1/chat/completions';
 
   const res = await fetch(url, {
@@ -363,7 +380,7 @@ async function callGroq(apiKey: string, prompt: string): Promise<string> {
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPromptText },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,

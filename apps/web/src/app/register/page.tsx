@@ -173,10 +173,26 @@ export default function RegisterPage() {
 
       // 임시 비밀번호로 즉시 자동 로그인
       if (data.email && data.temp_password) {
-        await supabase.auth.signInWithPassword({
+        let { error: signInErr } = await supabase.auth.signInWithPassword({
           email: data.email,
           password: data.temp_password,
         });
+
+        // Database error querying schema 발생 시 스키마 자동 복구 RPC 1회 시도 후 재로그인
+        if (signInErr && signInErr.message?.toLowerCase().includes('schema')) {
+          try {
+            await supabase.rpc('repair_auth_user_schema', { p_email: data.email });
+            const retryRes = await supabase.auth.signInWithPassword({
+              email: data.email,
+              password: data.temp_password,
+            });
+            signInErr = retryRes.error;
+          } catch {}
+        }
+
+        if (signInErr) {
+          console.warn('Auto sign-in failed:', signInErr);
+        }
       }
 
       setStep('SUCCESS');
@@ -458,29 +474,32 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.open('https://playentry.org?entry_hub_action=signup', '_blank');
-                  }}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+                <a
+                  href="https://playentry.org?entry_hub_action=signup"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
-                    padding: '10px 18px',
+                    width: '100%',
+                    padding: '12px 18px',
                     borderRadius: '8px',
-                    border: `1px solid ${colors.hairlineStrong}`,
-                    backgroundColor: colors.canvas,
-                    color: colors.ink,
+                    border: 'none',
+                    backgroundColor: colors.primary,
+                    color: colors.onPrimary,
                     fontSize: '13px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '6px',
+                    textDecoration: 'none',
+                    boxShadow: '0 2px 8px rgba(0, 112, 243, 0.25)',
                   }}
                 >
-                  <ExternalLink size={14} />
-                  <span>엔트리 창 다시 열기</span>
-                </button>
+                  <ExternalLink size={15} />
+                  <span>엔트리 가입 창 직접 열기 (팝업 미열림 시 클릭)</span>
+                </a>
 
                 <button
                   type="button"
@@ -489,17 +508,16 @@ export default function RegisterPage() {
                     setStep('GUIDE');
                   }}
                   style={{
-                    padding: '10px 18px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: colors.canvasSoft2,
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: `1px solid ${colors.hairline}`,
+                    backgroundColor: 'transparent',
                     color: colors.mute,
-                    fontSize: '13px',
-                    fontWeight: 600,
+                    fontSize: '12px',
                     cursor: 'pointer',
                   }}
                 >
-                  취소
+                  회원가입 취소
                 </button>
               </div>
 

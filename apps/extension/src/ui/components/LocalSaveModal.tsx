@@ -127,12 +127,14 @@ export function LocalSaveModal({
         };
       }
       // 선택된 블록과 연관된 함수만 선별 (저장 당시 작품의 무관한 함수 n개 전부 포함 차단)
+      const rawFuncs = assetData.functions || [];
+      let filteredFuncs = filterFunctionsForBlock(assetData.block, rawFuncs);
+      if (filteredFuncs.length === 0 && (assetData.block?.type?.startsWith('func_') || assetData.block?.type === 'def_functions') && rawFuncs.length > 0) {
+        filteredFuncs = rawFuncs;
+      }
       assetData = {
         ...assetData,
-        functions: filterFunctionsForBlock(
-          assetData.block,
-          assetData.functions || []
-        ),
+        functions: filteredFuncs,
       };
     }
 

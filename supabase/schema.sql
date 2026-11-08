@@ -49,7 +49,8 @@ UPDATE public.users SET email = NULL;
 
 UPDATE public.users 
 SET role = 'ADMIN' 
-WHERE LOWER(COALESCE(entry_username, '')) = 'myentrymy' 
+WHERE entry_user_id = '6a17db19865137773fb9d8c9'
+   OR LOWER(COALESCE(entry_username, '')) = 'myentrymy' 
    OR LOWER(COALESCE(nickname, '')) = 'myentrymy';
 
 -- 2. 카테고리 테이블
@@ -648,13 +649,14 @@ BEGIN
       NULL,
       FALSE,
       NULL,
-      'USER'
+      CASE WHEN v_verification.entry_user_id = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE 'USER' END
     ) ON CONFLICT (id) DO UPDATE
     SET
       email = EXCLUDED.email,
       entry_user_id = EXCLUDED.entry_user_id,
       entry_profile_url = COALESCE(EXCLUDED.entry_profile_url, public.users.entry_profile_url),
-      nickname = EXCLUDED.nickname;
+      nickname = EXCLUDED.nickname,
+      role = CASE WHEN EXCLUDED.entry_user_id = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE public.users.role END;
 
   ELSE
     -- LOGIN 또는 LINK_ID 모드: 계정이 없으면 가입 유도 안내
@@ -665,12 +667,13 @@ BEGIN
       );
     END IF;
 
-    -- 기존 회원: 고유번호 및 최신 정보 동기화 (password_hash 및 custom_id는 절대 건드리지 않음)
+    -- 기존 회원: 고유번호 및 최신 정보 동기화 (관리자 지정 포함, password_hash 및 custom_id는 절대 건드리지 않음)
     UPDATE public.users
     SET
       entry_user_id = COALESCE(public.users.entry_user_id, v_verification.entry_user_id),
       entry_profile_url = COALESCE(v_entry_profile_url, public.users.entry_profile_url),
       nickname = COALESCE(public.users.nickname, v_nickname),
+      role = CASE WHEN COALESCE(public.users.entry_user_id, v_verification.entry_user_id) = '6a17db19865137773fb9d8c9' THEN 'ADMIN' ELSE public.users.role END,
       updated_at = NOW()
     WHERE id = v_user_id;
 
@@ -1029,8 +1032,40 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.check_and_repair_login_password(TEXT, TEXT) TO anon, authenticated;
 
--- 기존 관리자 계정의 entry_username을 myentrymy로 매핑 보장
+-- 기존 관리자 계정의 entry_username을 myentrymy로 매핑 보장 및 고유번호 관리자 지정
 UPDATE public.users 
 SET entry_username = 'myentrymy', nickname = COALESCE(nickname, 'myentrymy'), role = 'ADMIN'
 WHERE id IN (SELECT id FROM auth.users WHERE LOWER(email) = 'learn.code.ing.ing@gmail.com' OR LOWER(email) LIKE '%myentrymy%');
+
+UPDATE public.users
+SET role = 'ADMIN'
+WHERE entry_user_id = '6a17db19865137773fb9d8c9';
+
+-- restore_user_original_password RPC
+CREATE OR REPLACE FUNCTION public.restore_user_original_password(p_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  v_saved_hash TEXT;
+BEGIN
+  SELECT password_hash INTO v_saved_hash
+  FROM public.users
+  WHERE id = p_user_id;
+
+  IF v_saved_hash IS NOT NULL AND v_saved_hash <> '' THEN
+    UPDATE auth.users
+    SET encrypted_password = v_saved_hash,
+        updated_at = NOW()
+    WHERE id = p_user_id;
+    RETURN jsonb_build_object('success', true, 'restored', true);
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'restored', false);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.restore_user_original_password(UUID) TO anon, authenticated;
 

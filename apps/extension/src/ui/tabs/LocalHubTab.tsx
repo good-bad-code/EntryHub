@@ -71,8 +71,9 @@ export function LocalHubTab({
   const [movingItem, setMovingItem] = useState<{ type: 'asset' | 'folder'; id: string; title: string } | null>(null);
   const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
 
-  // 검색
+  // 검색 및 필터
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<'ALL' | 'CODE' | 'OBJECT' | 'SCENE'>('ALL');
 
   // 더보기 메뉴 드롭다운 상태
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -205,17 +206,31 @@ export function LocalHubTab({
 
   const breadcrumbs = getBreadcrumbs();
 
-  // 현재 폴더에 속한 하위 폴더 및 에셋 필터링
+  // 현재 폴더에 속한 하위 폴더 및 에셋 필터링 (다중 검색 및 타입 필터 지원)
+  const isFiltering = !!searchQuery.trim() || selectedTypeFilter !== 'ALL';
+  const queryLower = searchQuery.trim().toLowerCase();
+
   const currentSubFolders = folders.filter((f) => {
-    if (searchQuery.trim()) {
-      return f.name.toLowerCase().includes(searchQuery.toLowerCase());
+    // 특정 에셋 타입 필터 중에는 폴더 표시 안 함
+    if (selectedTypeFilter !== 'ALL') return false;
+    if (queryLower) {
+      return f.name.toLowerCase().includes(queryLower);
     }
     return f.parentId === currentFolderId;
   });
 
   const currentAssets = assets.filter((a) => {
-    if (searchQuery.trim()) {
-      return a.title.toLowerCase().includes(searchQuery.toLowerCase());
+    // 1. 타입 필터
+    if (selectedTypeFilter !== 'ALL' && a.type !== selectedTypeFilter) {
+      return false;
+    }
+    // 2. 검색어 필터 (제목, 설명, 타입 텍스트 다중 검색)
+    if (queryLower) {
+      const typeLabel = a.type === 'CODE' ? '코드' : a.type === 'OBJECT' ? '오브젝트' : '장면';
+      const matchesTitle = a.title.toLowerCase().includes(queryLower);
+      const matchesDesc = (a.description || '').toLowerCase().includes(queryLower);
+      const matchesType = typeLabel.includes(queryLower) || a.type.toLowerCase().includes(queryLower);
+      return matchesTitle || matchesDesc || matchesType;
     }
     return a.folderId === currentFolderId;
   });
@@ -471,32 +486,31 @@ export function LocalHubTab({
           </div>
         </div>
 
-        {/* 검색 및 경로 바 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* 검색 및 필터 바 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div
             style={{
-              flex: 1,
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '6px 10px',
-              borderRadius: '6px',
-              backgroundColor: activeColors.canvasSoft,
+              gap: '8px',
+              padding: '7px 12px',
+              borderRadius: '8px',
+              backgroundColor: activeColors.canvasSoft2,
               border: `1px solid ${activeColors.hairline}`,
             }}
           >
-            <Search size={13} color={activeColors.mute} />
+            <Search size={14} color={activeColors.mute} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="로컬 폴더 및 에셋 검색..."
+              placeholder="에셋 이름, 설명, 타입, 폴더명 검색..."
               style={{
                 border: 'none',
                 outline: 'none',
                 backgroundColor: 'transparent',
                 width: '100%',
-                fontSize: '11px',
+                fontSize: '12px',
                 color: activeColors.ink,
               }}
             />
@@ -504,16 +518,99 @@ export function LocalHubTab({
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                style={{ background: 'none', border: 'none', color: activeColors.mute, cursor: 'pointer', padding: 0 }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: activeColors.mute,
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
-                <X size={12} />
+                <X size={13} />
               </button>
             )}
           </div>
+
+          {/* 에셋 종류 필터 칩 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {[
+              { id: 'ALL', label: '전체' },
+              { id: 'CODE', label: '코드', icon: FileCode, color: '#0070f3' },
+              { id: 'OBJECT', label: '오브젝트', icon: Box, color: '#7928ca' },
+              { id: 'SCENE', label: '장면', icon: Layers, color: '#ff0080' },
+            ].map((f) => {
+              const isSelected = selectedTypeFilter === f.id;
+              const IconComp = f.icon;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSelectedTypeFilter(f.id as any)}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: isSelected ? 600 : 500,
+                    border: `1px solid ${isSelected ? activeColors.primary : activeColors.hairline}`,
+                    backgroundColor: isSelected ? activeColors.primary : activeColors.canvas,
+                    color: isSelected ? activeColors.onPrimary : activeColors.body,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {IconComp && <IconComp size={11} color={isSelected ? activeColors.onPrimary : f.color} />}
+                  <span>{f.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* 폴더 브레드크럼 */}
-        {!searchQuery && (
+        {/* 검색 중일 때의 상태 헤더 vs 일반 폴더 브레드크럼 */}
+        {isFiltering ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              backgroundColor: activeColors.canvasSoft,
+              border: `1px solid ${activeColors.hairline}`,
+              fontSize: '11px',
+              color: activeColors.body,
+            }}
+          >
+            <span>
+              검색 결과: <strong>{currentAssets.length}</strong>개 에셋
+              {selectedTypeFilter === 'ALL' && currentSubFolders.length > 0 && ` · 폴더 ${currentSubFolders.length}개`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedTypeFilter('ALL');
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: activeColors.link,
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              초기화
+            </button>
+          </div>
+        ) : (
           <div
             style={{
               display: 'flex',

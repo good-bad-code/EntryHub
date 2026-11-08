@@ -109,13 +109,33 @@ export function AuthModal({ isOpen, onClose, onSuccess, onError }: AuthModalProp
 
       // 3) 발급받은 임시 1회용 비밀번호로 Supabase Auth 자동 로그인
       if (authResult.email && authResult.temp_password) {
-        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+        let { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
           email: authResult.email,
           password: authResult.temp_password,
         });
 
+        // Database error querying schema 발생 시 스키마 자동 복구 RPC 1회 시도 후 재로그인
+        if (signInErr && signInErr.message?.toLowerCase().includes('schema')) {
+          try {
+            await supabase.rpc('repair_auth_user_schema', { p_email: authResult.email });
+            const retryRes = await supabase.auth.signInWithPassword({
+              email: authResult.email,
+              password: authResult.temp_password,
+            });
+            signInData = retryRes.data;
+            signInErr = retryRes.error;
+          } catch {}
+        }
+
         if (signInErr) {
           throw signInErr;
+        }
+
+        // 엔트리 로그인 완료 즉시, 유저의 원래 비밀번호 해시가 있다면 복원 (아이디/비밀번호 깨짐 영구 방지)
+        if (signInData?.user?.id) {
+          try {
+            await supabase.rpc('restore_user_original_password', { p_user_id: signInData.user.id });
+          } catch {}
         }
 
         onSuccess(signInData.user);

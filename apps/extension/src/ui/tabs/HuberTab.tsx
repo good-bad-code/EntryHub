@@ -191,7 +191,8 @@ export function HuberTab({
         currentSettings.selectedModel,
         currentKeyInfo.key,
         prompt,
-        currentContext || undefined
+        currentContext || undefined,
+        { tokenSavingMode: currentSettings.tokenSavingMode }
       );
 
       const assistantMsg: HuberMessage = {
@@ -509,22 +510,24 @@ export function HuberTab({
                 gap: '6px',
               }}
             >
-              {/* 말풍선 */}
-              <div
-                style={{
-                  maxWidth: '88%',
-                  padding: '10px 14px',
-                  borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                  backgroundColor: msg.role === 'user' ? activeColors.primary : activeColors.canvasSoft2,
-                  color: msg.role === 'user' ? '#fff' : activeColors.ink,
-                  fontSize: '12px',
-                  lineHeight: '1.5',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {msg.content}
-              </div>
+              {/* 말풍선 (토큰 절감 모드로 텍스트가 없는 경우 생략) */}
+              {Boolean(msg.content && msg.content.trim()) && (
+                <div
+                  style={{
+                    maxWidth: '88%',
+                    padding: '10px 14px',
+                    borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                    backgroundColor: msg.role === 'user' ? '#0070f3' : activeColors.canvasSoft2,
+                    color: msg.role === 'user' ? '#ffffff' : activeColors.ink,
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    boxShadow: msg.role === 'user' ? '0 1px 4px rgba(0, 112, 243, 0.3)' : '0 1px 3px rgba(0,0,0,0.05)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {msg.content}
+                </div>
+              )}
 
               {/* AI가 생성한 엔트리 블록 시각화 카드 */}
               {msg.role === 'assistant' && msg.script && (
@@ -726,7 +729,7 @@ export function HuberTab({
         style={{
           display: 'flex',
           gap: '8px',
-          alignItems: 'flex-end',
+          alignItems: 'center',
           paddingTop: '8px',
           borderTop: `1px solid ${activeColors.hairline}`,
         }}
@@ -750,7 +753,8 @@ export function HuberTab({
           style={{
             flex: 1,
             boxSizing: 'border-box',
-            padding: '14px 12px 6px',
+            height: '46px',
+            padding: '8px 12px',
             borderRadius: '8px',
             border: `1.5px solid ${activeColors.hairlineStrong}`,
             backgroundColor: activeColors.canvas,
@@ -759,6 +763,7 @@ export function HuberTab({
             outline: 'none',
             resize: 'none',
             fontFamily: 'inherit',
+            lineHeight: '1.4',
           }}
         />
 
@@ -766,21 +771,22 @@ export function HuberTab({
           type="submit"
           disabled={isLoading || !inputPrompt.trim() || !activeKeyInfo}
           style={{
-            padding: '10px 14px',
+            width: '46px',
+            height: '46px',
+            flexShrink: 0,
             borderRadius: '8px',
             backgroundColor: activeColors.primary,
-            color: '#fff',
+            color: activeColors.onPrimary,
             border: 'none',
             cursor: isLoading || !inputPrompt.trim() || !activeKeyInfo ? 'not-allowed' : 'pointer',
             opacity: isLoading || !inputPrompt.trim() || !activeKeyInfo ? 0.5 : 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '42px',
           }}
           title="전송"
         >
-          {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+          {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
         </button>
       </form>
     </div>

@@ -298,21 +298,24 @@ export function UploadModal({
         // 새로 추출된 데이터가 있는 경우 이전 코드/오브젝트/썸네일을 완전히 갈아엎음
         if (extractedData) {
           const finalData = { ...extractedData.data };
+          const rawFuncs = extractedData.data.functions || [];
           if (
             extractedData.type === 'CODE' &&
             finalData.availableBlocks &&
             finalData.availableBlocks[selectedBlockIndex]
           ) {
             finalData.block = finalData.availableBlocks[selectedBlockIndex].blockJson;
-            finalData.functions = filterFunctionsForBlock(
-              finalData.block,
-              extractedData.data.functions || []
-            );
+            let funcs = filterFunctionsForBlock(finalData.block, rawFuncs);
+            if (funcs.length === 0 && (finalData.block?.type?.startsWith('func_') || finalData.block?.type === 'def_functions') && rawFuncs.length > 0) {
+              funcs = rawFuncs;
+            }
+            finalData.functions = funcs;
           } else if (extractedData.type === 'CODE') {
-            finalData.functions = filterFunctionsForBlock(
-              finalData.block,
-              extractedData.data.functions || []
-            );
+            let funcs = filterFunctionsForBlock(finalData.block, rawFuncs);
+            if (funcs.length === 0 && (finalData.block?.type?.startsWith('func_') || finalData.block?.type === 'def_functions') && rawFuncs.length > 0) {
+              funcs = rawFuncs;
+            }
+            finalData.functions = funcs;
           }
           updatePayload.data = finalData;
           updatePayload.type = selectedType;
@@ -343,21 +346,24 @@ export function UploadModal({
             : undefined;
 
         const finalData = { ...extractedData.data };
+        const rawFuncs = extractedData.data.functions || [];
         if (
           extractedData.type === 'CODE' &&
           finalData.availableBlocks &&
           finalData.availableBlocks[selectedBlockIndex]
         ) {
           finalData.block = finalData.availableBlocks[selectedBlockIndex].blockJson;
-          finalData.functions = filterFunctionsForBlock(
-            finalData.block,
-            extractedData.data.functions || []
-          );
+          let funcs = filterFunctionsForBlock(finalData.block, rawFuncs);
+          if (funcs.length === 0 && (finalData.block?.type?.startsWith('func_') || finalData.block?.type === 'def_functions') && rawFuncs.length > 0) {
+            funcs = rawFuncs;
+          }
+          finalData.functions = funcs;
         } else if (extractedData.type === 'CODE') {
-          finalData.functions = filterFunctionsForBlock(
-            finalData.block,
-            extractedData.data.functions || []
-          );
+          let funcs = filterFunctionsForBlock(finalData.block, rawFuncs);
+          if (funcs.length === 0 && (finalData.block?.type?.startsWith('func_') || finalData.block?.type === 'def_functions') && rawFuncs.length > 0) {
+            funcs = rawFuncs;
+          }
+          finalData.functions = funcs;
         }
 
         const payload: Record<string, any> = {

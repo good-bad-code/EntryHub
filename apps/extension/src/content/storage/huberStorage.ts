@@ -93,6 +93,7 @@ export const HUBER_MODELS: HuberModelInfo[] = [
 export interface HuberSettings {
   enabled: boolean;
   selectedModel: HuberModelId;
+  tokenSavingMode?: boolean; // 토큰 절감 모드 (답변 멘트 생략하고 코드만 바로 생성)
   apiKeys: {
     gemini?: string;
     openai?: string;
@@ -108,6 +109,7 @@ export function getHuberSettings(): HuberSettings {
   const defaults: HuberSettings = {
     enabled: true,
     selectedModel: 'gemini-3.8-flash',
+    tokenSavingMode: false,
     apiKeys: {},
   };
 
@@ -118,6 +120,7 @@ export function getHuberSettings(): HuberSettings {
       return {
         enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
         selectedModel: parsed.selectedModel || 'gemini-3.8-flash',
+        tokenSavingMode: typeof parsed.tokenSavingMode === 'boolean' ? parsed.tokenSavingMode : false,
         apiKeys: parsed.apiKeys || {},
       };
     }

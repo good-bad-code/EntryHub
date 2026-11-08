@@ -157,6 +157,14 @@ export default function LoginPage() {
           throw signInErr;
         }
 
+        // 엔트리 로그인 완료 즉시, 유저의 원래 비밀번호 해시가 있다면 복원 (아이디/비밀번호 깨짐 영구 방지)
+        try {
+          const { data: userSession } = await supabase.auth.getUser();
+          if (userSession?.user?.id) {
+            await supabase.rpc('restore_user_original_password', { p_user_id: userSession.user.id });
+          }
+        } catch {}
+
         router.push('/');
       }
     } catch (err: any) {
@@ -391,26 +399,32 @@ export default function LoginPage() {
                     인증 코드: <strong style={{ color: colors.primary }}>{verificationCode}</strong>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    <button
-                      type="button"
-                      onClick={() => window.open('https://playentry.org?entry_hub_action=login', '_blank')}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
+                    <a
+                      href="https://playentry.org?entry_hub_action=login"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       style={{
-                        padding: '8px 14px',
-                        borderRadius: '6px',
-                        border: `1px solid ${colors.hairlineStrong}`,
-                        backgroundColor: colors.canvas,
-                        fontSize: '12px',
-                        fontWeight: 600,
+                        width: '100%',
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        backgroundColor: colors.primary,
+                        color: colors.onPrimary,
+                        fontSize: '13px',
+                        fontWeight: 700,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        textDecoration: 'none',
+                        boxShadow: '0 2px 8px rgba(0, 112, 243, 0.25)',
                       }}
                     >
-                      <ExternalLink size={13} />
-                      <span>엔트리 창 다시 열기</span>
-                    </button>
+                      <ExternalLink size={15} />
+                      <span>엔트리 인증 창 직접 열기 (팝업 미열림 시 클릭)</span>
+                    </a>
                     <button
                       type="button"
                       onClick={() => {
@@ -418,16 +432,16 @@ export default function LoginPage() {
                         setEntryLoginStep('IDLE');
                       }}
                       style={{
-                        padding: '8px 14px',
+                        padding: '8px 16px',
                         borderRadius: '6px',
-                        border: 'none',
-                        backgroundColor: colors.canvasSoft2,
+                        border: `1px solid ${colors.hairline}`,
+                        backgroundColor: 'transparent',
                         fontSize: '12px',
                         cursor: 'pointer',
                         color: colors.mute,
                       }}
                     >
-                      취소
+                      로그인 취소
                     </button>
                   </div>
 
