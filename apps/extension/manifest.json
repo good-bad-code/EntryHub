@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Entry-Hub",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "엔트리 작품 수정 페이지에 통합 에셋 보관함 및 주입 기능 제공",
   "icons": {
     "16": "icons/icon16.png",
