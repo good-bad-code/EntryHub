@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, LogIn, UserPlus, AlertCircle, Loader2, CheckCircle2, ShieldCheck, KeyRound, ArrowRight } from 'lucide-react';
 import { colors } from '@entry-hub/shared';
 import { supabase } from '../../infrastructure/supabase/client';
-import { detectEntryUser, requestBridgeEntryUser } from '../../content/verifier';
+import { detectEntryUser, getAccurateEntryUser, requestBridgeEntryUser } from '../../content/verifier';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -41,6 +41,11 @@ export function AuthModal({ isOpen, onClose, onSuccess, onError }: AuthModalProp
       const u = detectEntryUser();
       setDetectedUser(u);
 
+      // 정확한 유저 비동기 조회 (GraphQL 및 세션 검증)
+      getAccurateEntryUser(1500).then((accUser) => {
+        setDetectedUser(accUser);
+      });
+
       // 브릿지 응답 대기 및 DOM 렌더링 타이밍을 고려해 300ms, 800ms 후 재확인
       const t1 = setTimeout(() => {
         setDetectedUser(detectEntryUser());
@@ -64,7 +69,7 @@ export function AuthModal({ isOpen, onClose, onSuccess, onError }: AuthModalProp
     setLoading(true);
 
     try {
-      const user = detectEntryUser();
+      const user = (await getAccurateEntryUser(1000)) || detectEntryUser();
       if (!user || (!user.username && !user.nickname && !user._id)) {
         throw new Error(
           '엔트리에 로그인되어 있지 않습니다.\n엔트리(playentry.org) 사이트에 먼저 로그인해 주세요.'

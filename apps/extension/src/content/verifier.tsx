@@ -396,10 +396,53 @@ export function requestBridgeEntryUser() {
 let cachedDetectedUser: DetectedEntryUser | null = null;
 
 /**
- * playentry.org GraphQL API를 통해 현재 로그인된 세션 직접 확인
+ * 엔트리 헤더/GNB DOM 컨테이너 탐색
+ */
+function getEntryHeaderContainer(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  return document.querySelector<HTMLElement>(
+    'header, nav, [class*="Header__"], [class*="Gnb__"], [class*="header__"], [class*="gnb__"], [class*="Header"], [class*="Gnb"], [class*="header"], [class*="gnb"]'
+  );
+}
+
+/**
+ * 엔트리 사이트에서 명시적으로 비로그인(게스트) 상태인지 검사
+ */
+export function isExplicitlyLoggedOut(): boolean {
+  if (typeof document === 'undefined') return false;
+
+  const header = getEntryHeaderContainer();
+  if (header) {
+    // 헤더 내에 내 프로필 링크가 있으면 확실한 로그인 상태
+    const profileLink = header.querySelector('a[href*="/profile/"]');
+    if (profileLink) {
+      return false;
+    }
+
+    // 헤더 내에 명시적 로그인 링크나 버튼이 있는지 검사
+    const signinLink = header.querySelector('a[href*="/signin"], a[href*="/login"]');
+    if (signinLink) {
+      return true;
+    }
+
+    const buttons = header.querySelectorAll('a, button');
+    for (const btn of Array.from(buttons)) {
+      const text = btn.textContent?.trim();
+      if (text === '로그인' || text === '로그인 / 회원가입') {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * playentry.org GraphQL API를 통해 현재 로그인된 세션 확인 (보조 수단)
  */
 export async function fetchEntryUserViaApi(): Promise<DetectedEntryUser | null> {
   if (cachedDetectedUser) return cachedDetectedUser;
+
   try {
     const res = await fetch('https://playentry.org/graphql', {
       method: 'POST',
@@ -433,40 +476,46 @@ export async function fetchEntryUserViaApi(): Promise<DetectedEntryUser | null> 
       }
     }
   } catch (err) {
-    // API 조회 실패 시 DOM/캐시로 폴백
+    // API 조회 실패 시 DOM 방식으로 계속 탐색
   }
   return null;
 }
 
 /**
  * 엔트리 페이지에서 현재 로그인된 유저 정보 동기 감지
+ * (헤더 컨테이너 내부만 철저히 탐색하여 타인/작품 제작자 프로필 오인식을 100% 차단)
  */
 export function detectEntryUser(): DetectedEntryUser | null {
   if (cachedDetectedUser) {
     return cachedDetectedUser;
   }
 
-  // 1. Next.js 공식 세션 스토어 (__NEXT_DATA__) 확인
+  // 1. 헤더/GNB 내부의 내 프로필 아바타 링크 탐색 (가장 직관적이고 확실한 DOM 원천)
   try {
-    const nextDataEl = document.getElementById('__NEXT_DATA__');
-    if (nextDataEl?.textContent) {
-      const nextData = JSON.parse(nextDataEl.textContent);
-      const props = nextData.props || {};
-      const pageProps = props.pageProps || {};
-      const initialState = pageProps.initialState || props.initialState || {};
-
-      // 공식 Redux 스토어 유저 정보 (공통 세션)
-      const authUser = initialState.common?.user;
-      if (authUser && authUser._id && authUser.nickname) {
-        return {
-          nickname: authUser.nickname,
-          id: authUser._id,
-          _id: authUser._id,
-        };
+    const header = getEntryHeaderContainer();
+    if (header) {
+      // 중요: 반드시 header 내부에서만 쿼리! (본문 작품 카드의 프로필 링크 탐색 원천 차단)
+      const myProfileLink = header.querySelector<HTMLAnchorElement>('a[href*="/profile/"]');
+      if (myProfileLink) {
+        const href = myProfileLink.getAttribute('href') || '';
+        const match = href.match(/\/profile\/([a-zA-Z0-9_\uac00-\ud7a3]+)/);
+        if (match && match[1]) {
+          const img = myProfileLink.querySelector('img');
+          const nick = img?.getAttribute('alt') || myProfileLink.textContent?.trim() || match[1];
+          if (nick && match[1]) {
+            const detected: DetectedEntryUser = {
+              nickname: nick,
+              id: match[1],
+              _id: match[1],
+            };
+            cachedDetectedUser = detected;
+            return detected;
+          }
+        }
       }
     }
   } catch (e) {
-    console.warn('[Entry-Hub] __NEXT_DATA__ user detection error:', e);
+    console.warn('[Entry-Hub] Header profile detection error:', e);
   }
 
   // 2. 창작 워크스페이스(/ws)인 경우 브릿지 캐시 및 Entry.user 확인
@@ -478,61 +527,85 @@ export function detectEntryUser(): DetectedEntryUser | null {
   try {
     const entryUser = (window as any).Entry?.user;
     if (entryUser && entryUser._id && entryUser.nickname) {
-      return {
+      const detected: DetectedEntryUser = {
         nickname: entryUser.nickname,
         id: entryUser._id,
         _id: entryUser._id,
       };
+      cachedDetectedUser = detected;
+      return detected;
     }
   } catch {}
 
-  // 3. 헤더 GNB 영역 DOM 확인 (폴백)
+  // 3. Next.js 공식 세션 스토어 (__NEXT_DATA__) 확인
   try {
-    // 헤더 내부의 내 프로필 링크(/profile/xxx) 확인
-    const myProfileLink = document.querySelector(
-      'header a[href*="/profile/"], nav a[href*="/profile/"], [class*="Header"] a[href*="/profile/"], [class*="Gnb"] a[href*="/profile/"], a[href*="/profile/"]'
-    );
-    if (myProfileLink) {
-      const href = myProfileLink.getAttribute('href') || '';
-      const match = href.match(/\/profile\/([a-zA-Z0-9_\uac00-\ud7a3]+)/);
-      if (match && match[1]) {
-        const img = myProfileLink.querySelector('img');
-        const nick = img?.getAttribute('alt') || myProfileLink.textContent?.trim() || match[1];
-        return {
-          nickname: nick,
-          id: match[1],
-          _id: match[1],
+    const nextDataEl = document.getElementById('__NEXT_DATA__');
+    if (nextDataEl?.textContent) {
+      const nextData = JSON.parse(nextDataEl.textContent);
+      const props = nextData.props || {};
+      const pageProps = props.pageProps || {};
+      const initialState = pageProps.initialState || props.initialState || {};
+
+      const authUser = initialState.common?.user || pageProps.user;
+      if (authUser && authUser._id && authUser.nickname) {
+        const detected: DetectedEntryUser = {
+          nickname: authUser.nickname,
+          id: authUser._id,
+          _id: authUser._id,
         };
+        cachedDetectedUser = detected;
+        return detected;
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[Entry-Hub] __NEXT_DATA__ user detection error:', e);
+  }
 
   return null;
 }
 
 /**
  * 정확한 엔트리 로그인 유저 정보(_id 포함)를 비동기로 조회
+ * (즉시 감지 + GraphQL API + 렌더링 대기 폴링 순으로 안전하게 확인)
  */
-export async function getAccurateEntryUser(maxWaitMs = 2000): Promise<DetectedEntryUser | null> {
+export async function getAccurateEntryUser(maxWaitMs = 2500): Promise<DetectedEntryUser | null> {
+  // 1. 헤더 DOM 또는 브릿지에서 즉시 감지 시도
   const immediate = detectEntryUser();
-  if (immediate && immediate._id && immediate.nickname) {
+  if (immediate && (immediate._id || immediate.id) && immediate.nickname) {
     return immediate;
   }
 
-  // GraphQL 세션 직접 확인 (비동기)
-  const apiUser = await fetchEntryUserViaApi();
-  if (apiUser && apiUser._id) {
-    return apiUser;
+  // 2. 만약 헤더에 명시적으로 '로그인' 버튼이 보이고 프로필 링크가 없다면 비로그인 판정
+  if (isExplicitlyLoggedOut()) {
+    cachedDetectedUser = null;
+    return null;
   }
 
-  requestBridgeEntryUser();
+  // 3. GraphQL 세션 비동기 조회 (동시 시도)
+  fetchEntryUserViaApi().then((apiUser) => {
+    if (apiUser) {
+      cachedDetectedUser = apiUser;
+    }
+  });
 
+  // 4. Next.js 하이드레이션 및 헤더 DOM 렌더링 완료 타이밍을 고려해 최대 maxWaitMs 동안 폴링
   const startTime = Date.now();
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise((r) => setTimeout(r, 200));
+
     const user = detectEntryUser();
-    if (user && user._id && user.nickname) {
+    if (user && (user._id || user.id) && user.nickname) {
       return user;
+    }
+
+    if (cachedDetectedUser) {
+      return cachedDetectedUser;
+    }
+
+    // 헤더에 확실하게 로그인 버튼이 나타나면 비로그인으로 조기 종료
+    if (isExplicitlyLoggedOut()) {
+      cachedDetectedUser = null;
+      return null;
     }
   }
 
