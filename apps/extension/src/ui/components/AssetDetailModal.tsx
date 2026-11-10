@@ -347,7 +347,15 @@ export function AssetDetailModal({
               rawData.pictures?.[0] ||
               rawData.objects?.[0]?.selectedPicture ||
               rawData.objects?.[0]?.pictures?.[0];
-            const displayImg = formatAssetImageUrl(asset.previewImageUrl) || formatAssetImageUrl(fallbackPic);
+            const isGenericBot =
+              !asset.previewImageUrl ||
+              asset.previewImageUrl.includes('entrybot_walk') ||
+              asset.previewImageUrl.includes('entrybot1');
+
+            const displayImg =
+              isGenericBot && fallbackPic
+                ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(asset.previewImageUrl)
+                : formatAssetImageUrl(asset.previewImageUrl) || formatAssetImageUrl(fallbackPic);
 
             return displayImg ? (
               <div style={{ height: '140px', borderRadius: '8px', overflow: 'hidden', backgroundColor: colors.canvasSoft2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

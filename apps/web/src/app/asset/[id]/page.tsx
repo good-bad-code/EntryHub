@@ -716,13 +716,26 @@ export default function AssetDetailPage() {
 
           {/* Preview Image Banner */}
           {(() => {
+            // 코드(CODE) 에셋은 블록 코드로만 표현하므로 상단 이미지 배너를 표시하지 않음
+            if (asset.type === 'CODE') return null;
+
             const rawData: any = asset.data || {};
             const fallbackPic =
               rawData.selectedPicture ||
               rawData.pictures?.[0] ||
               rawData.objects?.[0]?.selectedPicture ||
               rawData.objects?.[0]?.pictures?.[0];
-            const heroUrl = formatAssetImageUrl(asset.preview_image_url) || formatAssetImageUrl(fallbackPic);
+
+            // DB에 저장된 preview_image_url이 기본 엔트리봇(entrybot_walk1 등)이고 실제 고유 모양이 있는 경우 실제 모양 우선
+            const isGenericBot =
+              !asset.preview_image_url ||
+              asset.preview_image_url.includes('entrybot_walk') ||
+              asset.preview_image_url.includes('entrybot1');
+
+            const heroUrl =
+              isGenericBot && fallbackPic
+                ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(asset.preview_image_url)
+                : formatAssetImageUrl(asset.preview_image_url) || formatAssetImageUrl(fallbackPic);
 
             if (!heroUrl) return null;
 

@@ -115,6 +115,82 @@ function checkEntryReady(): boolean {
 // 공통 헬퍼 함수 (엔트리 인스턴스/JSON 프로퍼티 호환)
 // =========================================================
 
+function resolveEntryPictureUrl(p: any): string | null {
+  if (!p) return null;
+  if (typeof p === 'string') {
+    const s = p.trim();
+    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:')) return s;
+    if (s.startsWith('/')) return `https://playentry.org${s}`;
+    if (s.length >= 20 && !s.includes('/')) {
+      const f1 = s.substring(0, 2);
+      const f2 = s.substring(2, 4);
+      const dotIdx = s.lastIndexOf('.');
+      const pureName = dotIdx !== -1 ? s.substring(0, dotIdx) : s;
+      const ext = dotIdx !== -1 ? s.substring(dotIdx + 1) : 'png';
+      return `https://playentry.org/uploads/${f1}/${f2}/image/${pureName}.${ext}`;
+    }
+    const hasExt = /\.(png|jpe?g|svg|gif|webp)$/i.test(s);
+    return hasExt
+      ? `https://playentry.org/lib/entry-js/images/media/${s}`
+      : `https://playentry.org/lib/entry-js/images/media/${s}.png`;
+  }
+
+  const pJson = typeof p?.toJSON === 'function' ? p.toJSON() : p;
+  let fileurl = (pJson.fileurl || p.fileurl || pJson.imageURL || p.imageURL || '').trim();
+  const filename = (pJson.filename || p.filename || '').trim();
+  const imageType = (pJson.imageType || p.imageType || 'png').replace(/^\./, '');
+
+  if (fileurl && (fileurl.startsWith('http://') || fileurl.startsWith('https://') || fileurl.startsWith('data:'))) {
+    return fileurl;
+  }
+
+  if (filename) {
+    if (filename.length >= 20 && !filename.includes('/')) {
+      const f1 = filename.substring(0, 2);
+      const f2 = filename.substring(2, 4);
+      return `https://playentry.org/uploads/${f1}/${f2}/image/${filename}.${imageType}`;
+    }
+    const hasExt = /\.(png|jpe?g|svg|gif|webp)$/i.test(filename);
+    return hasExt
+      ? `https://playentry.org/lib/entry-js/images/media/${filename}`
+      : `https://playentry.org/lib/entry-js/images/media/${filename}.png`;
+  }
+
+  if (fileurl) {
+    if (fileurl.startsWith('/')) {
+      return `https://playentry.org${fileurl}`;
+    }
+    if (fileurl.length >= 20 && !fileurl.includes('/')) {
+      const f1 = fileurl.substring(0, 2);
+      const f2 = fileurl.substring(2, 4);
+      return `https://playentry.org/uploads/${f1}/${f2}/image/${fileurl}.${imageType}`;
+    }
+    return `https://playentry.org/${fileurl}`;
+  }
+
+  return null;
+}
+
+function serializePicture(p: any, idx = 0): any {
+  const pJson = typeof p?.toJSON === 'function' ? p.toJSON() : p;
+  const filename = (pJson.filename || p.filename || `pic_${idx}`).trim();
+  const pName = pJson.name || p.name || `모양 ${idx + 1}`;
+  const imageType = (pJson.imageType || p.imageType || 'png').replace(/^\./, '');
+  const fileurl = resolveEntryPictureUrl(p);
+
+  return {
+    id: pJson.id || p.id || generateEntryHash(),
+    name: pName,
+    filename,
+    imageType,
+    fileurl: fileurl || null,
+    imageURL: fileurl || null,
+    dimension: pJson.dimension || p.dimension || { width: 100, height: 100 },
+    scaleX: pJson.scaleX ?? p.scaleX ?? 1,
+    scaleY: pJson.scaleY ?? p.scaleY ?? 1,
+  };
+}
+
 function toSafeArray(target: any): any[] {
   if (!target) return [];
   if (Array.isArray(target)) return target;
@@ -215,49 +291,7 @@ function serializeEntryObject(liveObj: any): any {
     (typeof liveObj.getPictures === 'function' ? liveObj.getPictures() : null) ||
     [];
 
-  const pictures = toSafeArray(rawPics).map((p: any, idx: number) => {
-    const pJson = typeof p?.toJSON === 'function' ? p.toJSON() : p;
-    let fileurl = (pJson.fileurl || p.fileurl || pJson.imageURL || p.imageURL || '').trim();
-    const filename = (pJson.filename || p.filename || `pic_${idx}`).trim();
-    const pName = pJson.name || p.name || `모양 ${idx + 1}`;
-    const imageType = (pJson.imageType || p.imageType || 'png').replace(/^\./, '');
-
-    // fileurl이 없거나 비정상적일 때 filename으로부터 URL 복원
-    if (!fileurl && filename) {
-      if (filename.length >= 20) {
-        const f1 = filename.substring(0, 2);
-        const f2 = filename.substring(2, 4);
-        fileurl = `https://playentry.org/uploads/${f1}/${f2}/image/${filename}.${imageType}`;
-      } else {
-        const hasExt = /\.(png|jpe?g|svg|gif|webp)$/i.test(filename);
-        fileurl = hasExt
-          ? `https://playentry.org/lib/entry-js/images/media/${filename}`
-          : `https://playentry.org/lib/entry-js/images/media/${filename}.png`;
-      }
-    } else if (fileurl && !fileurl.startsWith('http://') && !fileurl.startsWith('https://') && !fileurl.startsWith('data:')) {
-      if (fileurl.startsWith('/')) {
-        fileurl = `https://playentry.org${fileurl}`;
-      } else if (fileurl.length >= 20 && !fileurl.includes('/')) {
-        const f1 = fileurl.substring(0, 2);
-        const f2 = fileurl.substring(2, 4);
-        fileurl = `https://playentry.org/uploads/${f1}/${f2}/image/${fileurl}.${imageType}`;
-      } else {
-        fileurl = `https://playentry.org/${fileurl}`;
-      }
-    }
-
-    return {
-      id: pJson.id || p.id || generateEntryHash(),
-      name: pName,
-      filename,
-      imageType,
-      fileurl: fileurl || null,
-      imageURL: fileurl || null,
-      dimension: pJson.dimension || p.dimension || { width: 100, height: 100 },
-      scaleX: pJson.scaleX ?? p.scaleX ?? 1,
-      scaleY: pJson.scaleY ?? p.scaleY ?? 1,
-    };
-  });
+  const pictures = toSafeArray(rawPics).map((p: any, idx: number) => serializePicture(p, idx));
 
   // 4. 소리(sounds) 완벽 추출 및 보강
   const rawSounds: any[] =
@@ -567,9 +601,10 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       : null;
     const serialized = exportedObj
       ? (() => {
-          // exportedObj는 toJSON(false) 결과이므로 그대로 사용
+          // exportedObj는 toJSON(false) 결과이므로 그대로 사용하되 모양(pictures) URL 보강
           const sp = exportedObj.sprite || exportedObj;
-          const pics = Array.isArray(sp.pictures) ? sp.pictures : (Array.isArray(exportedObj.pictures) ? exportedObj.pictures : []);
+          const rawPics = Array.isArray(sp.pictures) ? sp.pictures : (Array.isArray(exportedObj.pictures) ? exportedObj.pictures : []);
+          const pics = rawPics.map((p: any, idx: number) => serializePicture(p, idx));
           const snds = Array.isArray(sp.sounds) ? sp.sounds : (Array.isArray(exportedObj.sounds) ? exportedObj.sounds : []);
           const firstPic = pics[0] || null;
           return {
@@ -581,8 +616,10 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
         })()
       : serializeEntryObject(liveTargetObject);
 
-    // 미리보기 이미지: 선택된 모양 또는 첫 번째 모양의 fileurl
-    let previewUrl = serialized.selectedPicture?.fileurl || serialized.pictures?.[0]?.fileurl;
+    // 미리보기 이미지: 선택된 모양 또는 첫 번째 모양의 실제 URL 계산
+    let previewUrl =
+      resolveEntryPictureUrl(serialized.selectedPicture) ||
+      resolveEntryPictureUrl(serialized.pictures?.[0]);
     if (!previewUrl) {
       previewUrl = 'https://playentry.org/lib/entry-js/images/media/entrybot_walk1.png';
     }
@@ -635,7 +672,9 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
     // 장면 대표 미리보기 이미지: 첫 번째 오브젝트의 그림 또는 스테이지 캔버스
     let previewUrl: string | null = null;
     if (targetObjects.length > 0) {
-      previewUrl = targetObjects[0].selectedPicture?.fileurl || targetObjects[0].pictures?.[0]?.fileurl || null;
+      previewUrl =
+        resolveEntryPictureUrl(targetObjects[0].selectedPicture) ||
+        resolveEntryPictureUrl(targetObjects[0].pictures?.[0]);
     }
     if (!previewUrl) {
       try {

@@ -319,7 +319,14 @@ export function CategoryTab({ onSelectAsset, onQuickInject }: CategoryTabProps) 
                         rawData.pictures?.[0] ||
                         rawData.objects?.[0]?.selectedPicture ||
                         rawData.objects?.[0]?.pictures?.[0];
-                      const img = formatAssetImageUrl(asset.previewImageUrl) || formatAssetImageUrl(fallbackPic);
+                      const isGenericBot =
+                        !asset.previewImageUrl ||
+                        asset.previewImageUrl.includes('entrybot_walk') ||
+                        asset.previewImageUrl.includes('entrybot1');
+                      const img =
+                        isGenericBot && fallbackPic
+                          ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(asset.previewImageUrl)
+                          : formatAssetImageUrl(asset.previewImageUrl) || formatAssetImageUrl(fallbackPic);
 
                       return img ? (
                         <img
