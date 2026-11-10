@@ -241,6 +241,7 @@ export default function HomePage() {
                   likeCount={asset.like_count || 0}
                   bookmarkCount={asset.bookmark_count || 0}
                   previewImageUrl={asset.preview_image_url}
+                  data={asset.data}
                 />
               ))}
             </div>
@@ -298,6 +299,7 @@ export default function HomePage() {
                   likeCount={asset.like_count || 0}
                   bookmarkCount={asset.bookmark_count || 0}
                   previewImageUrl={asset.preview_image_url}
+                  data={asset.data}
                 />
               ))}
             </div>

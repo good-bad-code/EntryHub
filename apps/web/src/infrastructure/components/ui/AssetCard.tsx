@@ -18,6 +18,7 @@ export interface AssetCardProps {
   likeCount: number;
   bookmarkCount: number;
   previewImageUrl?: string;
+  data?: any;
   onClick?: () => void;
 }
 
@@ -33,12 +34,45 @@ export function AssetCard({
   likeCount,
   bookmarkCount,
   previewImageUrl,
+  data,
   onClick,
 }: AssetCardProps) {
   const router = useRouter();
   const { colors } = useTheme();
   const [imgError, setImgError] = useState(false);
-  const formattedImageUrl = formatAssetImageUrl(previewImageUrl);
+
+  const rawData: any = data || {};
+  const fallbackPic =
+    rawData.selectedPicture ||
+    rawData.pictures?.[0] ||
+    rawData.objects?.[0]?.selectedPicture ||
+    rawData.objects?.[0]?.pictures?.[0];
+
+  const isGenericBot =
+    !previewImageUrl ||
+    previewImageUrl.includes('entrybot_walk') ||
+    previewImageUrl.includes('entrybot1');
+
+  const resolvedImageUrl =
+    isGenericBot && fallbackPic
+      ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(previewImageUrl)
+      : formatAssetImageUrl(previewImageUrl) || formatAssetImageUrl(fallbackPic);
+
+  const [currentSrc, setCurrentSrc] = useState<string | undefined>(resolvedImageUrl);
+
+  React.useEffect(() => {
+    setCurrentSrc(resolvedImageUrl);
+    setImgError(false);
+  }, [resolvedImageUrl]);
+
+  const handleImageError = () => {
+    const fallbackUrl = formatAssetImageUrl(fallbackPic);
+    if (fallbackUrl && currentSrc !== fallbackUrl) {
+      setCurrentSrc(fallbackUrl);
+    } else {
+      setImgError(true);
+    }
+  };
 
   const handleClick = () => {
     if (onClick) {
@@ -86,19 +120,27 @@ export function AssetCard({
           overflow: 'hidden',
         }}
       >
-        {formattedImageUrl && !imgError ? (
+        {type !== 'CODE' && currentSrc && !imgError ? (
           <img
-            src={formattedImageUrl}
+            src={currentSrc}
             alt={title}
             referrerPolicy="no-referrer"
-            onError={() => setImgError(true)}
+            onError={handleImageError}
             style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '10px' }}
           />
         ) : (
-
           <div style={{ color: colors.mute, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            {typeInfo.icon}
-            <span style={{ fontSize: '12px' }}>미리보기 이미지</span>
+            {type === 'CODE' ? (
+              <>
+                <Code2 size={28} color="#0070f3" />
+                <span style={{ fontSize: '12px', fontWeight: 500, color: colors.mute }}>블록 코드 에셋</span>
+              </>
+            ) : (
+              <>
+                {typeInfo.icon}
+                <span style={{ fontSize: '12px' }}>미리보기 이미지 없음</span>
+              </>
+            )}
           </div>
         )}
 

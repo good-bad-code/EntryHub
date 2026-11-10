@@ -53,6 +53,8 @@ interface AssetSummary {
   isAdminPick?: boolean;
   likeCount: number;
   bookmarkCount: number;
+  previewImageUrl?: string;
+  data?: any;
 }
 
 export default function ProfilePage() {
@@ -180,6 +182,8 @@ export default function ProfilePage() {
               isAdminPick: u.is_admin_pick,
               likeCount: u.like_count || 0,
               bookmarkCount: u.bookmark_count || 0,
+              previewImageUrl: u.preview_image_url,
+              data: u.data,
             }))
           );
         }
@@ -209,6 +213,8 @@ export default function ProfilePage() {
                 isAdminPick: u.is_admin_pick,
                 likeCount: u.like_count || 0,
                 bookmarkCount: u.bookmark_count || 0,
+                previewImageUrl: u.preview_image_url,
+                data: u.data,
               }))
             );
           } else {
