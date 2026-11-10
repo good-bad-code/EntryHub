@@ -65,17 +65,31 @@ export function AssetDetailModal({
     if (currentUser?.id && !isLocalAsset) {
       const checkStatus = async () => {
         try {
-          const [likeRes, bookmarkRes] = await Promise.all([
-            supabase.from('likes').select('id').eq('asset_id', asset.id).eq('user_id', currentUser.id).maybeSingle(),
-            supabase.from('bookmarks').select('id').eq('asset_id', asset.id).eq('user_id', currentUser.id).maybeSingle(),
+          const [likeRes, bookmarkRes, assetRes] = await Promise.all([
+            supabase.from('likes').select('asset_id').eq('asset_id', asset.id).eq('user_id', currentUser.id).maybeSingle(),
+            supabase.from('bookmarks').select('asset_id').eq('asset_id', asset.id).eq('user_id', currentUser.id).maybeSingle(),
+            supabase.from('assets').select('like_count, bookmark_count').eq('id', asset.id).maybeSingle(),
           ]);
           setIsLiked(Boolean(likeRes.data));
           setIsBookmarked(Boolean(bookmarkRes.data));
+          if (assetRes.data) {
+            setLikeCount(assetRes.data.like_count ?? 0);
+            setBookmarkCount(assetRes.data.bookmark_count ?? 0);
+          }
         } catch (e) {
           console.warn('Status check failed:', e);
         }
       };
       checkStatus();
+    } else if (!isLocalAsset) {
+      supabase.from('assets').select('like_count, bookmark_count').eq('id', asset.id).maybeSingle().then(({ data }) => {
+        if (data) {
+          setLikeCount(data.like_count ?? 0);
+          setBookmarkCount(data.bookmark_count ?? 0);
+        }
+      });
+      setIsLiked(false);
+      setIsBookmarked(false);
     } else {
       setIsLiked(false);
       setIsBookmarked(false);
@@ -92,22 +106,51 @@ export function AssetDetailModal({
       onError('좋아요를 누르려면 먼저 로그인해 주세요.');
       return;
     }
-    const nextState = !isLiked;
-    const nextCount = nextState ? likeCount + 1 : Math.max(0, likeCount - 1);
+    const prevLiked = isLiked;
+    const prevCount = likeCount;
+    const nextState = !prevLiked;
+    const optimisticCount = nextState ? prevCount + 1 : Math.max(0, prevCount - 1);
     setIsLiked(nextState);
-    setLikeCount(nextCount);
+    setLikeCount(optimisticCount);
 
     try {
-      if (nextState) {
-        await supabase.from('likes').insert({ asset_id: asset.id, user_id: currentUser.id });
-      } else {
-        await supabase.from('likes').delete().eq('asset_id', asset.id).eq('user_id', currentUser.id);
+      // 1. 원자적 RPC 호출 우선 시도
+      const { data: rpcData, error: rpcError } = await supabase.rpc('toggle_like', { p_asset_id: asset.id });
+      if (!rpcError && rpcData && typeof rpcData.isLiked === 'boolean') {
+        setIsLiked(rpcData.isLiked);
+        setLikeCount(rpcData.likeCount);
+        return;
       }
-      await supabase.from('assets').update({ like_count: nextCount }).eq('id', asset.id);
-    } catch (e) {
-      setIsLiked(!nextState);
-      setLikeCount(likeCount);
-      onError('좋아요 반영에 실패했습니다.');
+
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      if (nextState) {
+        const { error } = await supabase.from('likes').insert({ asset_id: asset.id, user_id: currentUser.id });
+        if (error) {
+          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('likes_pkey')) {
+            setIsLiked(true);
+            const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', asset.id).maybeSingle();
+            if (updatedAsset && typeof updatedAsset.like_count === 'number') {
+              setLikeCount(updatedAsset.like_count);
+            }
+            return;
+          }
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from('likes').delete().eq('asset_id', asset.id).eq('user_id', currentUser.id);
+        if (error) throw error;
+      }
+
+      // DB 트리거 반영 최신 카운트 동기화
+      const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', asset.id).maybeSingle();
+      if (updatedAsset && typeof updatedAsset.like_count === 'number') {
+        setLikeCount(updatedAsset.like_count);
+      }
+    } catch (e: any) {
+      console.error('[Entry-Hub] Like toggle failed:', e);
+      setIsLiked(prevLiked);
+      setLikeCount(prevCount);
+      onError(e?.message || '좋아요 반영에 실패했습니다.');
     }
   };
 
@@ -117,22 +160,51 @@ export function AssetDetailModal({
       onError('마이픽(북마크)에 저장하려면 먼저 로그인해 주세요.');
       return;
     }
-    const nextState = !isBookmarked;
-    const nextCount = nextState ? bookmarkCount + 1 : Math.max(0, bookmarkCount - 1);
+    const prevBookmarked = isBookmarked;
+    const prevCount = bookmarkCount;
+    const nextState = !prevBookmarked;
+    const optimisticCount = nextState ? prevCount + 1 : Math.max(0, prevCount - 1);
     setIsBookmarked(nextState);
-    setBookmarkCount(nextCount);
+    setBookmarkCount(optimisticCount);
 
     try {
-      if (nextState) {
-        await supabase.from('bookmarks').insert({ asset_id: asset.id, user_id: currentUser.id });
-      } else {
-        await supabase.from('bookmarks').delete().eq('asset_id', asset.id).eq('user_id', currentUser.id);
+      // 1. 원자적 RPC 호출 우선 시도
+      const { data: rpcData, error: rpcError } = await supabase.rpc('toggle_bookmark', { p_asset_id: asset.id });
+      if (!rpcError && rpcData && typeof rpcData.isBookmarked === 'boolean') {
+        setIsBookmarked(rpcData.isBookmarked);
+        setBookmarkCount(rpcData.bookmarkCount);
+        return;
       }
-      await supabase.from('assets').update({ bookmark_count: nextCount }).eq('id', asset.id);
-    } catch (e) {
-      setIsBookmarked(!nextState);
-      setBookmarkCount(bookmarkCount);
-      onError('북마크 반영에 실패했습니다.');
+
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      if (nextState) {
+        const { error } = await supabase.from('bookmarks').insert({ asset_id: asset.id, user_id: currentUser.id });
+        if (error) {
+          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('bookmarks_pkey')) {
+            setIsBookmarked(true);
+            const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', asset.id).maybeSingle();
+            if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
+              setBookmarkCount(updatedAsset.bookmark_count);
+            }
+            return;
+          }
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from('bookmarks').delete().eq('asset_id', asset.id).eq('user_id', currentUser.id);
+        if (error) throw error;
+      }
+
+      // DB 트리거 반영 최신 카운트 동기화
+      const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', asset.id).maybeSingle();
+      if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
+        setBookmarkCount(updatedAsset.bookmark_count);
+      }
+    } catch (e: any) {
+      console.error('[Entry-Hub] Bookmark toggle failed:', e);
+      setIsBookmarked(prevBookmarked);
+      setBookmarkCount(prevCount);
+      onError(e?.message || '북마크 반영에 실패했습니다.');
     }
   };
 

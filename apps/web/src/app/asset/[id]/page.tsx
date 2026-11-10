@@ -128,12 +128,12 @@ export default function AssetDetailPage() {
           setLikeCount(data.like_count || 0);
           setBookmarkCount(data.bookmark_count || 0);
 
-          // 현재 유저의 좋아요 및 북마크 여부 조회
+          // 현재 유저의 좋아요 및 북마크 여부 조회 (id 컬럼 대신 asset_id 조회)
           if (user?.id) {
             try {
               const [likeRes, bookmarkRes] = await Promise.all([
-                supabase.from('likes').select('id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
-                supabase.from('bookmarks').select('id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
+                supabase.from('likes').select('asset_id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
+                supabase.from('bookmarks').select('asset_id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
               ]);
               setIsLiked(Boolean(likeRes.data));
               setIsBookmarked(Boolean(bookmarkRes.data));
@@ -178,24 +178,52 @@ export default function AssetDetailPage() {
       alert('좋아요를 누르려면 로그인이 필요합니다.');
       return;
     }
-    const nextState = !isLiked;
-    const nextCount = nextState ? likeCount + 1 : Math.max(0, likeCount - 1);
+    const prevLiked = isLiked;
+    const prevCount = likeCount;
+    const nextState = !prevLiked;
+    const optimisticCount = nextState ? prevCount + 1 : Math.max(0, prevCount - 1);
     setIsLiked(nextState);
-    setLikeCount(nextCount);
+    setLikeCount(optimisticCount);
 
     try {
-      if (nextState) {
-        await supabase.from('likes').insert({ asset_id: assetId, user_id: user.id });
-      } else {
-        await supabase.from('likes').delete().eq('asset_id', assetId).eq('user_id', user.id);
+      // 1. 원자적 RPC 호출 우선 시도
+      const { data: rpcData, error: rpcError } = await supabase.rpc('toggle_like', { p_asset_id: assetId });
+      if (!rpcError && rpcData && typeof rpcData.isLiked === 'boolean') {
+        setIsLiked(rpcData.isLiked);
+        setLikeCount(rpcData.likeCount);
+        return;
       }
-      // DB 트리거 외에도 명시적 카운트 보장 (일관성 유지)
-      await supabase.from('assets').update({ like_count: nextCount }).eq('id', assetId);
-    } catch (e) {
+
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      if (nextState) {
+        const { error } = await supabase.from('likes').insert({ asset_id: assetId, user_id: user.id });
+        if (error) {
+          // 이미 존재하는 키(중복)인 경우 상태를 true로 동기화하고 에러 무시
+          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('likes_pkey')) {
+            setIsLiked(true);
+            const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', assetId).maybeSingle();
+            if (updatedAsset && typeof updatedAsset.like_count === 'number') {
+              setLikeCount(updatedAsset.like_count);
+            }
+            return;
+          }
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from('likes').delete().eq('asset_id', assetId).eq('user_id', user.id);
+        if (error) throw error;
+      }
+
+      // DB 트리거 반영 최신 카운트 동기화
+      const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', assetId).maybeSingle();
+      if (updatedAsset && typeof updatedAsset.like_count === 'number') {
+        setLikeCount(updatedAsset.like_count);
+      }
+    } catch (e: any) {
       console.warn('Like toggle sync error:', e);
-      // 실패 시 롤백
-      setIsLiked(!nextState);
-      setLikeCount(likeCount);
+      setIsLiked(prevLiked);
+      setLikeCount(prevCount);
+      alert(e?.message || '좋아요 반영에 실패했습니다.');
     }
   };
 
@@ -204,24 +232,52 @@ export default function AssetDetailPage() {
       alert('마이픽(북마크)에 저장하려면 로그인이 필요합니다.');
       return;
     }
-    const nextState = !isBookmarked;
-    const nextCount = nextState ? bookmarkCount + 1 : Math.max(0, bookmarkCount - 1);
+    const prevBookmarked = isBookmarked;
+    const prevCount = bookmarkCount;
+    const nextState = !prevBookmarked;
+    const optimisticCount = nextState ? prevCount + 1 : Math.max(0, prevCount - 1);
     setIsBookmarked(nextState);
-    setBookmarkCount(nextCount);
+    setBookmarkCount(optimisticCount);
 
     try {
-      if (nextState) {
-        await supabase.from('bookmarks').insert({ asset_id: assetId, user_id: user.id });
-      } else {
-        await supabase.from('bookmarks').delete().eq('asset_id', assetId).eq('user_id', user.id);
+      // 1. 원자적 RPC 호출 우선 시도
+      const { data: rpcData, error: rpcError } = await supabase.rpc('toggle_bookmark', { p_asset_id: assetId });
+      if (!rpcError && rpcData && typeof rpcData.isBookmarked === 'boolean') {
+        setIsBookmarked(rpcData.isBookmarked);
+        setBookmarkCount(rpcData.bookmarkCount);
+        return;
       }
-      // DB 트리거 외에도 명시적 카운트 보장 (일관성 유지)
-      await supabase.from('assets').update({ bookmark_count: nextCount }).eq('id', assetId);
-    } catch (e) {
+
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      if (nextState) {
+        const { error } = await supabase.from('bookmarks').insert({ asset_id: assetId, user_id: user.id });
+        if (error) {
+          // 이미 존재하는 키(중복)인 경우 상태를 true로 동기화하고 에러 무시
+          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('bookmarks_pkey')) {
+            setIsBookmarked(true);
+            const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', assetId).maybeSingle();
+            if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
+              setBookmarkCount(updatedAsset.bookmark_count);
+            }
+            return;
+          }
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from('bookmarks').delete().eq('asset_id', assetId).eq('user_id', user.id);
+        if (error) throw error;
+      }
+
+      // DB 트리거 반영 최신 카운트 동기화
+      const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', assetId).maybeSingle();
+      if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
+        setBookmarkCount(updatedAsset.bookmark_count);
+      }
+    } catch (e: any) {
       console.warn('Bookmark toggle sync error:', e);
-      // 실패 시 롤백
-      setIsBookmarked(!nextState);
-      setBookmarkCount(bookmarkCount);
+      setIsBookmarked(prevBookmarked);
+      setBookmarkCount(prevCount);
+      alert(e?.message || '북마크 반영에 실패했습니다.');
     }
   };
 
@@ -506,16 +562,16 @@ export default function AssetDetailPage() {
                   gap: '6px',
                   padding: '8px 14px',
                   borderRadius: '8px',
-                  border: `1px solid ${colors.hairlineStrong}`,
-                  backgroundColor: isLiked ? '#ffeef0' : colors.canvas,
-                  color: isLiked ? '#e53e3e' : colors.ink,
+                  border: isLiked ? '1px solid #fda4af' : `1px solid ${colors.hairlineStrong}`,
+                  backgroundColor: isLiked ? '#fff1f2' : colors.canvas,
+                  color: isLiked ? '#e11d48' : colors.ink,
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Heart size={16} fill={isLiked ? '#e53e3e' : 'none'} />
+                <Heart size={16} fill={isLiked ? '#e11d48' : 'none'} color={isLiked ? '#e11d48' : colors.ink} />
                 <span>{likeCount}</span>
               </button>
 
@@ -528,16 +584,16 @@ export default function AssetDetailPage() {
                   gap: '6px',
                   padding: '8px 14px',
                   borderRadius: '8px',
-                  border: `1px solid ${colors.hairlineStrong}`,
-                  backgroundColor: isBookmarked ? '#ebf8ff' : colors.canvas,
-                  color: isBookmarked ? colors.link : colors.ink,
+                  border: isBookmarked ? '1px solid #93c5fd' : `1px solid ${colors.hairlineStrong}`,
+                  backgroundColor: isBookmarked ? '#eff6ff' : colors.canvas,
+                  color: isBookmarked ? '#0070f3' : colors.ink,
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Bookmark size={16} fill={isBookmarked ? colors.link : 'none'} />
+                <Bookmark size={16} fill={isBookmarked ? '#0070f3' : 'none'} color={isBookmarked ? '#0070f3' : colors.ink} />
                 <span>{bookmarkCount}</span>
               </button>
 

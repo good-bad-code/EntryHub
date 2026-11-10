@@ -132,7 +132,7 @@ BEGIN
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trigger_update_like_count ON public.likes;
 CREATE TRIGGER trigger_update_like_count
@@ -150,7 +150,7 @@ BEGIN
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trigger_update_bookmark_count ON public.bookmarks;
 CREATE TRIGGER trigger_update_bookmark_count
@@ -1068,4 +1068,84 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.restore_user_original_password(UUID) TO anon, authenticated;
+
+-- toggle_like & toggle_bookmark RPC
+CREATE OR REPLACE FUNCTION public.toggle_like(p_asset_id TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_exists BOOLEAN;
+  v_new_count INTEGER;
+  v_is_liked BOOLEAN;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION '로그인이 필요합니다.';
+  END IF;
+
+  SELECT EXISTS(
+    SELECT 1 FROM public.likes WHERE asset_id = p_asset_id AND user_id = v_user_id
+  ) INTO v_exists;
+
+  IF v_exists THEN
+    DELETE FROM public.likes WHERE asset_id = p_asset_id AND user_id = v_user_id;
+    v_is_liked := false;
+  ELSE
+    INSERT INTO public.likes (asset_id, user_id) VALUES (p_asset_id, v_user_id)
+    ON CONFLICT (asset_id, user_id) DO NOTHING;
+    v_is_liked := true;
+  END IF;
+
+  SELECT like_count INTO v_new_count FROM public.assets WHERE id = p_asset_id;
+
+  RETURN jsonb_build_object(
+    'isLiked', v_is_liked,
+    'likeCount', COALESCE(v_new_count, 0)
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.toggle_bookmark(p_asset_id TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_exists BOOLEAN;
+  v_new_count INTEGER;
+  v_is_bookmarked BOOLEAN;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION '로그인이 필요합니다.';
+  END IF;
+
+  SELECT EXISTS(
+    SELECT 1 FROM public.bookmarks WHERE asset_id = p_asset_id AND user_id = v_user_id
+  ) INTO v_exists;
+
+  IF v_exists THEN
+    DELETE FROM public.bookmarks WHERE asset_id = p_asset_id AND user_id = v_user_id;
+    v_is_bookmarked := false;
+  ELSE
+    INSERT INTO public.bookmarks (asset_id, user_id) VALUES (p_asset_id, v_user_id)
+    ON CONFLICT (asset_id, user_id) DO NOTHING;
+    v_is_bookmarked := true;
+  END IF;
+
+  SELECT bookmark_count INTO v_new_count FROM public.assets WHERE id = p_asset_id;
+
+  RETURN jsonb_build_object(
+    'isBookmarked', v_is_bookmarked,
+    'bookmarkCount', COALESCE(v_new_count, 0)
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.toggle_like(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.toggle_bookmark(TEXT) TO authenticated;
 
