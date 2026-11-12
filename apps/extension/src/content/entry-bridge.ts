@@ -4,7 +4,7 @@ import {
   ExtractAssetPayload,
   InjectAssetPayload,
 } from '../protocol';
-import { filterFunctionsForBlock, extractFunctionNameFromDef } from '@entry-hub/shared';
+import { filterFunctionsForBlock, filterDependenciesForAsset, extractFunctionNameFromDef } from '@entry-hub/shared';
 
 declare global {
   interface Window {
@@ -533,6 +533,17 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       selectedFunctions = deps.functions;
     }
 
+    // 선택된 블록(들) 및 함수에서 실제로 참조하는 변수/리스트/신호만 정밀 선별 (무관한 n개 변수/리스트/신호 완전 차단)
+    const blocksToScan = availableBlocks.length > 0
+      ? availableBlocks.map((b: any) => b.blockJson).concat([blockJson])
+      : [blockJson];
+    const filteredCodeDeps = filterDependenciesForAsset(blocksToScan, {
+      variables: deps.variables,
+      lists: deps.lists,
+      messages: deps.messages,
+      functions: selectedFunctions,
+    });
+
     // 함수 블록 메타데이터(template, funcName)를 블록 객체에 직접 각인하여 영구 보존
     if (blockJson && typeof blockJson === 'object' && blockJson.type) {
       const bType = blockJson.type;
@@ -577,10 +588,10 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       data: {
         block: blockJson,
         availableBlocks: availableBlocks.length > 1 ? availableBlocks : undefined,
-        variables: deps.variables,
-        lists: deps.lists,
-        messages: deps.messages,
-        functions: selectedFunctions,
+        variables: filteredCodeDeps.variables,
+        lists: filteredCodeDeps.lists,
+        messages: filteredCodeDeps.messages,
+        functions: filteredCodeDeps.functions,
         pictures: objPictures,
         sounds: objSounds,
       },
@@ -624,15 +635,29 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       previewUrl = 'https://playentry.org/lib/entry-js/images/media/entrybot_walk1.png';
     }
 
+    const objId = serialized.id || liveId;
+    const filteredObjDeps = filterDependenciesForAsset(
+      serialized.script,
+      {
+        variables: deps.variables,
+        lists: deps.lists,
+        messages: deps.messages,
+        functions: deps.functions,
+      },
+      {
+        targetObjectIds: objId ? [objId] : [],
+      }
+    );
+
     return {
       type: 'OBJECT',
       title: serialized.name || '오브젝트',
       data: {
         ...serialized,
-        variables: deps.variables,
-        lists: deps.lists,
-        messages: deps.messages,
-        functions: filterFunctionsForBlock(serialized.script, deps.functions),
+        variables: filteredObjDeps.variables,
+        lists: filteredObjDeps.lists,
+        messages: filteredObjDeps.messages,
+        functions: filteredObjDeps.functions,
       },
       previewImageUrl: previewUrl,
     };
@@ -690,14 +715,29 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
       previewUrl = 'https://playentry.org/lib/entry-js/images/media/entrybot_walk1.png';
     }
 
+    const sceneScripts = targetObjects.map((o: any) => o.script).filter(Boolean);
+    const sceneObjIds = targetObjects.map((o: any) => o.id).filter(Boolean);
+    const filteredSceneDeps = filterDependenciesForAsset(
+      sceneScripts,
+      {
+        variables: deps.variables,
+        lists: deps.lists,
+        messages: deps.messages,
+        functions: deps.functions,
+      },
+      {
+        targetObjectIds: sceneObjIds,
+      }
+    );
+
     const sceneData = {
       sceneName: currentScene.name || '장면',
       sceneId: currentScene.id,
       objects: targetObjects,
-      variables: deps.variables,
-      lists: deps.lists,
-      messages: deps.messages,
-      functions: deps.functions,
+      variables: filteredSceneDeps.variables,
+      lists: filteredSceneDeps.lists,
+      messages: filteredSceneDeps.messages,
+      functions: filteredSceneDeps.functions,
     };
 
     return {
@@ -976,9 +1016,24 @@ function loadSceneToEntry(sceneData: any) {
     sceneIdMap[oldSceneId] = newScene.id;
   }
 
-  // 4. 변수/리스트 ID 매핑 테이블
+  // 4. 변수/리스트 ID 매핑 테이블 및 실제로 쓰이는 종속성 선별
   const variableIdMap: Record<string, string> = {};
   const listIdMap: Record<string, string> = {};
+
+  const sceneScripts = (sceneData.objects || []).map((o: any) => o.script).filter(Boolean);
+  const sceneObjIds = (sceneData.objects || []).map((o: any) => o.id).filter(Boolean);
+  const filteredSceneDeps = filterDependenciesForAsset(
+    sceneScripts,
+    {
+      variables: sceneData.variables || [],
+      lists: sceneData.lists || [],
+      messages: sceneData.messages || [],
+      functions: sceneData.functions || [],
+    },
+    {
+      targetObjectIds: sceneObjIds,
+    }
+  );
 
   const remapValue = (value: any): any => {
     if (typeof value === 'string') {
@@ -1017,10 +1072,10 @@ function loadSceneToEntry(sceneData: any) {
   };
 
   // 5. 변수 동기화
-  if (vc && Array.isArray(sceneData.variables)) {
+  if (vc && Array.isArray(filteredSceneDeps.variables)) {
     let currentVars = toSafeArray(vc.variables_);
 
-    [...sceneData.variables].reverse().forEach((savedVar: any) => {
+    [...filteredSceneDeps.variables].reverse().forEach((savedVar: any) => {
       if (!savedVar) return;
       const oldVarId = getEntityId(savedVar);
       const oldVarName = getEntityName(savedVar);
@@ -1069,10 +1124,10 @@ function loadSceneToEntry(sceneData: any) {
   }
 
   // 6. 리스트 동기화
-  if (vc && Array.isArray(sceneData.lists)) {
+  if (vc && Array.isArray(filteredSceneDeps.lists)) {
     let currentLists = toSafeArray(vc.lists_);
 
-    [...sceneData.lists].reverse().forEach((savedList: any) => {
+    [...filteredSceneDeps.lists].reverse().forEach((savedList: any) => {
       if (!savedList) return;
       const oldListId = getEntityId(savedList);
       const oldListName = getEntityName(savedList);
@@ -1116,10 +1171,10 @@ function loadSceneToEntry(sceneData: any) {
   }
 
   // 7. 신호 (메시지) 동기화
-  if (vc && Array.isArray(sceneData.messages)) {
+  if (vc && Array.isArray(filteredSceneDeps.messages)) {
     const currentMsgs = toSafeArray(vc.messages_);
 
-    [...sceneData.messages].reverse().forEach((m: any) => {
+    [...filteredSceneDeps.messages].reverse().forEach((m: any) => {
       if (!currentMsgs.some((cur: any) => getEntityId(cur) === m.id || getEntityName(cur) === m.name)) {
         if (typeof vc.addMessage === 'function') {
           try {
@@ -1133,10 +1188,10 @@ function loadSceneToEntry(sceneData: any) {
   }
 
   // 8. 함수 동기화 (내부 스크립트의 변수/리스트 ID 매핑 치환 및 makeBlock, unbanBlockView 트리거)
-  if (vc && Array.isArray(sceneData.functions)) {
+  if (vc && Array.isArray(filteredSceneDeps.functions)) {
     const currentFuncs = toSafeArray(vc.functions_);
 
-    [...sceneData.functions].reverse().forEach((f: any) => {
+    [...filteredSceneDeps.functions].reverse().forEach((f: any) => {
       const fId = getEntityId(f);
       const fName = getEntityName(f);
       if (!currentFuncs.some((cur: any) => (fId && getEntityId(cur) === fId) || (fName && getEntityName(cur) === fName))) {
@@ -1289,13 +1344,27 @@ function loadObjectToEntry(objData: any) {
   const idMap: Record<string, string> = {};
   if (oldId) idMap[oldId] = newId;
 
+  // 오브젝트 스크립트에서 실제로 사용되는 변수/리스트/신호/함수만 정밀 선별 (과거 저장된 잉여 변수 주입 차단)
+  const filteredObjDeps = filterDependenciesForAsset(
+    rawObj.script,
+    {
+      variables: rawObj.variables || [],
+      lists: rawObj.lists || [],
+      messages: rawObj.messages || [],
+      functions: rawObj.functions || [],
+    },
+    {
+      targetObjectIds: oldId ? [oldId] : [],
+    }
+  );
+
   // 장면 데이터 구조로 감싸서 변수/리스트/함수/신호 일괄 동기화 수행
   const sceneMock = {
     objects: [rawObj],
-    variables: rawObj.variables || [],
-    lists: rawObj.lists || [],
-    messages: rawObj.messages || [],
-    functions: rawObj.functions || [],
+    variables: filteredObjDeps.variables,
+    lists: filteredObjDeps.lists,
+    messages: filteredObjDeps.messages,
+    functions: filteredObjDeps.functions,
   };
 
   // 기존 선택된 장면이 있으면 그 장면 유지
@@ -1675,6 +1744,18 @@ function loadCodeToEntry(codeData: any) {
   const variableIdMap: Record<string, string> = {};
   const listIdMap: Record<string, string> = {};
 
+  // 코드 블록에서 실제로 사용되는 변수/리스트/신호/함수만 정밀 선별 (과거 저장된 잉여 종속성 주입 차단)
+  const targetCodeForDepScan = codeData.block || codeData.script || codeData.data || codeData;
+  const filteredCodeDeps = filterDependenciesForAsset(
+    targetCodeForDepScan,
+    {
+      variables: codeData.variables || [],
+      lists: codeData.lists || [],
+      messages: codeData.messages || [],
+      functions: codeData.functions || [],
+    }
+  );
+
   const remapValue = (value: any): any => {
     if (typeof value === 'string') {
       if (variableIdMap[value]) return variableIdMap[value];
@@ -1702,9 +1783,9 @@ function loadCodeToEntry(codeData: any) {
   };
 
   // 1. 변수 (일반 변수, 슬라이드) 동기화
-  if (vc && Array.isArray(codeData.variables)) {
+  if (vc && Array.isArray(filteredCodeDeps.variables)) {
     let currentVars = toSafeArray(vc.variables_);
-    codeData.variables.forEach((v: any) => {
+    filteredCodeDeps.variables.forEach((v: any) => {
       if (!v) return;
       const vId = getEntityId(v);
       const vName = getEntityName(v);
@@ -1728,9 +1809,9 @@ function loadCodeToEntry(codeData: any) {
   }
 
   // 2. 리스트 동기화
-  if (vc && Array.isArray(codeData.lists)) {
+  if (vc && Array.isArray(filteredCodeDeps.lists)) {
     let currentLists = toSafeArray(vc.lists_);
-    codeData.lists.forEach((l: any) => {
+    filteredCodeDeps.lists.forEach((l: any) => {
       if (!l) return;
       const lId = getEntityId(l);
       const lName = getEntityName(l);
@@ -1755,9 +1836,9 @@ function loadCodeToEntry(codeData: any) {
   }
 
   // 3. 신호(메시지) 동기화
-  if (vc && Array.isArray(codeData.messages)) {
+  if (vc && Array.isArray(filteredCodeDeps.messages)) {
     const currentMsgs = toSafeArray(vc.messages_);
-    codeData.messages.forEach((m: any) => {
+    filteredCodeDeps.messages.forEach((m: any) => {
       if (!m) return;
       const mId = getEntityId(m);
       const mName = getEntityName(m);
@@ -1773,9 +1854,8 @@ function loadCodeToEntry(codeData: any) {
   }
 
   // 4. 함수(functions) 동기화 (주입하려는 블록과 연관된 함수 및 에셋에 포함된 함수 정의 완전 주입)
-  const targetCodeForFuncScan = codeData.block || codeData.script || codeData.data || codeData;
-  const rawFunctions: any[] = Array.isArray(codeData.functions) ? codeData.functions : [];
-  const scannedFunctions = filterFunctionsForBlock(targetCodeForFuncScan, rawFunctions);
+  const rawFunctions: any[] = Array.isArray(filteredCodeDeps.functions) ? filteredCodeDeps.functions : [];
+  const scannedFunctions = filterFunctionsForBlock(targetCodeForDepScan, rawFunctions);
   // 에셋에 저장된 functions와 스캔된 함수를 병합하여 함수 정의가 유실되지 않도록 보장
   const functionsToInject: any[] = [];
   const funcSeen = new Set<string>();

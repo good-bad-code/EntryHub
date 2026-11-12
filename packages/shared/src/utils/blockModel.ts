@@ -1141,3 +1141,273 @@ export function filterFunctionsForBlock(rootBlockOrScript: any, allFunctions: an
   });
 }
 
+export interface FilteredDependencies {
+  variables: any[];
+  lists: any[];
+  messages: any[];
+  functions: any[];
+}
+
+/**
+ * 코드 블록, 오브젝트 스크립트, 또는 장면 스크립트에서 실제로 사용/참조되는
+ * 변수(variables), 리스트(lists), 신호(messages), 함수(functions)만 정밀 선별합니다.
+ * 쓰이지 않은 무관한 n개의 변수/리스트/신호가 불필요하게 에셋에 포함되거나 주입되는 현상을 방지합니다.
+ *
+ * @param rootBlockOrScript 검사할 블록, 스크립트 배열, 또는 여러 오브젝트 스크립트 묶음
+ * @param deps 프로젝트에 등록된 전체 종속성 객체
+ * @param options targetObjectIds: 해당 오브젝트의 로컬 변수/리스트도 포함할 경우 지정
+ */
+export function filterDependenciesForAsset(
+  rootBlockOrScript: any,
+  deps: {
+    variables?: any[];
+    lists?: any[];
+    messages?: any[];
+    functions?: any[];
+  },
+  options?: {
+    targetObjectIds?: string[];
+  }
+): FilteredDependencies {
+  const allVars = Array.isArray(deps?.variables) ? deps.variables : [];
+  const allLists = Array.isArray(deps?.lists) ? deps.lists : [];
+  const allMsgs = Array.isArray(deps?.messages) ? deps.messages : [];
+  const allFuncs = Array.isArray(deps?.functions) ? deps.functions : [];
+
+  // 1. 실제로 참조/호출되는 함수들을 먼저 선별 (전이적 참조 포함)
+  const usedFunctions = filterFunctionsForBlock(rootBlockOrScript, allFuncs);
+
+  // 2. ID 및 이름 인덱스 구축
+  const varIdSet = new Set<string>();
+  const varNameSet = new Set<string>();
+  const listIdSet = new Set<string>();
+  const listNameSet = new Set<string>();
+  const msgIdSet = new Set<string>();
+  const msgNameSet = new Set<string>();
+
+  allVars.forEach((v) => {
+    if (!v) return;
+    const id = v.id || v._id;
+    if (id) varIdSet.add(String(id));
+    if (v.name) varNameSet.add(String(v.name));
+  });
+
+  allLists.forEach((l) => {
+    if (!l) return;
+    const id = l.id || l._id;
+    if (id) listIdSet.add(String(id));
+    if (l.name) listNameSet.add(String(l.name));
+  });
+
+  allMsgs.forEach((m) => {
+    if (!m) return;
+    const id = m.id || m._id;
+    if (id) msgIdSet.add(String(id));
+    if (m.name) msgNameSet.add(String(m.name));
+  });
+
+  const matchedVarIds = new Set<string>();
+  const matchedListIds = new Set<string>();
+  const matchedMsgIds = new Set<string>();
+
+  // [블록 타입 매핑]
+  const varBlockTypes = new Set([
+    'get_variable',
+    'change_variable',
+    'set_variable',
+    'show_variable',
+    'hide_variable',
+  ]);
+
+  const listBlockTypesParam0 = new Set([
+    'value_of_index_from_list',
+    'change_value_list_index',
+    'length_of_list',
+    'is_included_in_list',
+    'show_list',
+    'hide_list',
+  ]);
+
+  const listBlockTypesParam1 = new Set([
+    'add_value_to_list',
+    'remove_value_from_list',
+    'insert_value_to_list',
+  ]);
+
+  const msgBlockTypes = new Set([
+    'when_message_cast',
+    'message_cast',
+    'message_cast_wait',
+  ]);
+
+  const visitedNodes = new Set<any>();
+
+  const scanNode = (node: any) => {
+    if (!node) return;
+
+    if (typeof node === 'string') {
+      const trimmed = node.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          scanNode(JSON.parse(node));
+        } catch { }
+      }
+      return;
+    }
+
+    if (typeof node !== 'object') return;
+    if (visitedNodes.has(node)) return;
+    visitedNodes.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        scanNode(item);
+      }
+      return;
+    }
+
+    const type = node.type || node.name || node.data?.type || '';
+    const params = node.params || node.data?.params || [];
+
+    // 전용 블록 타입 기반 정확 매칭
+    if (varBlockTypes.has(type)) {
+      const p0 = params[0];
+      const targetId = typeof p0 === 'string' ? p0 : (p0?.id || p0?._id || p0?.name);
+      if (typeof targetId === 'string') {
+        if (varIdSet.has(targetId)) matchedVarIds.add(targetId);
+        else if (varNameSet.has(targetId)) {
+          const found = allVars.find((v) => v?.name === targetId);
+          if (found?.id) matchedVarIds.add(String(found.id));
+          else if (found?._id) matchedVarIds.add(String(found._id));
+        }
+      }
+    } else if (listBlockTypesParam0.has(type)) {
+      const p0 = params[0];
+      const targetId = typeof p0 === 'string' ? p0 : (p0?.id || p0?._id || p0?.name);
+      if (typeof targetId === 'string') {
+        if (listIdSet.has(targetId)) matchedListIds.add(targetId);
+        else if (listNameSet.has(targetId)) {
+          const found = allLists.find((l) => l?.name === targetId);
+          if (found?.id) matchedListIds.add(String(found.id));
+          else if (found?._id) matchedListIds.add(String(found._id));
+        }
+      }
+    } else if (listBlockTypesParam1.has(type)) {
+      const p1 = params[1];
+      const targetId = typeof p1 === 'string' ? p1 : (p1?.id || p1?._id || p1?.name);
+      if (typeof targetId === 'string') {
+        if (listIdSet.has(targetId)) matchedListIds.add(targetId);
+        else if (listNameSet.has(targetId)) {
+          const found = allLists.find((l) => l?.name === targetId);
+          if (found?.id) matchedListIds.add(String(found.id));
+          else if (found?._id) matchedListIds.add(String(found._id));
+        }
+      }
+    } else if (msgBlockTypes.has(type)) {
+      const p0 = params[0];
+      const targetId = typeof p0 === 'string' ? p0 : (p0?.id || p0?._id || p0?.name);
+      if (typeof targetId === 'string') {
+        if (msgIdSet.has(targetId)) matchedMsgIds.add(targetId);
+        else if (msgNameSet.has(targetId)) {
+          const found = allMsgs.find((m) => m?.name === targetId);
+          if (found?.id) matchedMsgIds.add(String(found.id));
+          else if (found?._id) matchedMsgIds.add(String(found._id));
+        }
+      }
+    }
+
+    // params 재귀 탐색 (중첩 블록 get_variable 등) 및 일반 params 내 ID 매칭
+    if (Array.isArray(params)) {
+      for (const p of params) {
+        if (typeof p === 'string') {
+          // 변수/리스트/신호 관련 블록이거나 길이가 3자 이상인 ID 매칭
+          if (varIdSet.has(p) && (type.includes('variable') || type.includes('var') || p.length >= 4)) {
+            matchedVarIds.add(p);
+          }
+          if (listIdSet.has(p) && (type.includes('list') || p.length >= 4)) {
+            matchedListIds.add(p);
+          }
+          if (msgIdSet.has(p) && (type.includes('message') || type.includes('msg') || p.length >= 4)) {
+            matchedMsgIds.add(p);
+          }
+        } else {
+          scanNode(p);
+        }
+      }
+    }
+
+    // statements 재귀 탐색
+    if (node.statements && Array.isArray(node.statements)) {
+      for (const stmt of node.statements) {
+        scanNode(stmt);
+      }
+    }
+
+    // values 객체 재귀 탐색
+    if (node.values && typeof node.values === 'object') {
+      for (const key of Object.keys(node.values)) {
+        scanNode(node.values[key]);
+      }
+    }
+
+    // 다음 연결 블록(next) 재귀 탐색
+    if (node.next) {
+      scanNode(node.next);
+    }
+  };
+
+  // 1) 대상 루트 블록/스크립트 스캔
+  scanNode(rootBlockOrScript);
+
+  // 2) 실제로 사용되는 함수 내부 블록들도 스캔
+  usedFunctions.forEach((f) => {
+    if (f?.content) {
+      scanNode(f.content);
+    }
+  });
+
+  // 3) 대상 오브젝트가 지정된 경우, 해당 오브젝트 소유의 로컬 변수/리스트 자동 포함
+  const targetObjSet = new Set((options?.targetObjectIds || []).filter(Boolean).map(String));
+  if (targetObjSet.size > 0) {
+    allVars.forEach((v) => {
+      const objId = v?.object || v?.object_ || (typeof v?.getObject === 'function' ? v.getObject() : null);
+      if (objId && targetObjSet.has(String(objId))) {
+        const id = v?.id || v?._id;
+        if (id) matchedVarIds.add(String(id));
+      }
+    });
+
+    allLists.forEach((l) => {
+      const objId = l?.object || l?.object_ || (typeof l?.getObject === 'function' ? l.getObject() : null);
+      if (objId && targetObjSet.has(String(objId))) {
+        const id = l?.id || l?._id;
+        if (id) matchedListIds.add(String(id));
+      }
+    });
+  }
+
+  // 최종 매칭된 것만 필터링
+  const finalVars = allVars.filter((v) => {
+    const id = String(v?.id || v?._id || '');
+    return id && matchedVarIds.has(id);
+  });
+
+  const finalLists = allLists.filter((l) => {
+    const id = String(l?.id || l?._id || '');
+    return id && matchedListIds.has(id);
+  });
+
+  const finalMsgs = allMsgs.filter((m) => {
+    const id = String(m?.id || m?._id || '');
+    return id && matchedMsgIds.has(id);
+  });
+
+  return {
+    variables: finalVars,
+    lists: finalLists,
+    messages: finalMsgs,
+    functions: usedFunctions,
+  };
+}
+
+
