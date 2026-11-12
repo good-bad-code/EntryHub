@@ -62,6 +62,16 @@ function initEntryBridge() {
         }
         break;
       }
+      case 'EXECUTE_ACTION_PLAN_REQ': {
+        try {
+          const plan = message.payload as any;
+          await executeHuberActionPlan(plan);
+          sendResponse(message.requestId, 'EXECUTE_ACTION_PLAN_RES', { success: true });
+        } catch (err: any) {
+          sendError(message.requestId, 'EXECUTE_ACTION_PLAN_RES', err?.message || '허버 액션 플랜 실행에 실패했습니다.');
+        }
+        break;
+      }
       case 'GET_ENTRY_USER_REQ': {
         try {
           const u = window.Entry?.user || null;
@@ -630,7 +640,9 @@ async function extractAsset(type: string): Promise<ExtractAssetPayload> {
     // 미리보기 이미지: 선택된 모양 또는 첫 번째 모양의 실제 URL 계산
     let previewUrl =
       resolveEntryPictureUrl(serialized.selectedPicture) ||
-      resolveEntryPictureUrl(serialized.pictures?.[0]);
+      resolveEntryPictureUrl(serialized.pictures?.[0]) ||
+      resolveEntryPictureUrl(serialized.sprite?.selectedPicture) ||
+      resolveEntryPictureUrl(serialized.sprite?.pictures?.[0]);
     if (!previewUrl) {
       previewUrl = 'https://playentry.org/lib/entry-js/images/media/entrybot_walk1.png';
     }
@@ -2272,4 +2284,346 @@ function loadCodeToEntry(codeData: any) {
 
   repairOrphanVariables();
   refreshEntryEditorViews();
+}
+
+// =========================================================
+// 허버(Huber) 2.0 액션 플랜 통합 실행기
+// =========================================================
+async function executeHuberActionPlan(plan: any): Promise<void> {
+  if (!checkEntryReady()) {
+    throw new Error('엔트리 에디터가 아직 준비되지 않았습니다.');
+  }
+
+  const Entry = window.Entry;
+  const vc = Entry.variableContainer;
+
+  const variableNameMap: Record<string, string> = {};
+  const listNameMap: Record<string, string> = {};
+  const messageNameMap: Record<string, string> = {};
+
+  // 1. 변수 생성 및 매핑
+  if (vc && Array.isArray(plan.variables) && plan.variables.length > 0) {
+    let currentVars = toSafeArray(vc.variables_);
+    plan.variables.forEach((v: any) => {
+      if (!v || !v.name) return;
+      const vName = String(v.name).trim();
+      let matched = currentVars.find((cur: any) => getEntityName(cur) === vName);
+      if (!matched && typeof vc.addVariable === 'function') {
+        try {
+          vc.addVariable({
+            name: vName,
+            type: v.type || 'variable',
+            variableType: v.type || 'variable',
+            value: v.defaultValue ?? 0,
+            minValue: v.minValue,
+            maxValue: v.maxValue,
+            visible: v.visible ?? true,
+          });
+        } catch (e) {
+          console.warn('[Entry-Hub] Huber 변수 생성 실패:', vName, e);
+        }
+        currentVars = toSafeArray(vc.variables_);
+        matched = currentVars.find((cur: any) => getEntityName(cur) === vName);
+      }
+      if (matched) {
+        const actualId = getEntityId(matched);
+        if (actualId) {
+          variableNameMap[vName] = actualId;
+        }
+      }
+    });
+  }
+
+  // 2. 리스트 생성 및 매핑
+  if (vc && Array.isArray(plan.lists) && plan.lists.length > 0) {
+    let currentLists = toSafeArray(vc.lists_);
+    plan.lists.forEach((l: any) => {
+      if (!l || !l.name) return;
+      const lName = String(l.name).trim();
+      let matched = currentLists.find((cur: any) => getEntityName(cur) === lName);
+      if (!matched && typeof vc.addList === 'function') {
+        try {
+          vc.addList({
+            name: lName,
+            type: 'list',
+            variableType: 'list',
+            array: (l.defaultValues || []).map((val: any) => ({ data: val })),
+            visible: l.visible ?? true,
+          });
+        } catch (e) {
+          console.warn('[Entry-Hub] Huber 리스트 생성 실패:', lName, e);
+        }
+        currentLists = toSafeArray(vc.lists_);
+        matched = currentLists.find((cur: any) => getEntityName(cur) === lName);
+      }
+      if (matched) {
+        const actualId = getEntityId(matched);
+        if (actualId) {
+          listNameMap[lName] = actualId;
+        }
+      }
+    });
+  }
+
+  // 3. 신호 생성 및 매핑
+  if (vc && Array.isArray(plan.messages) && plan.messages.length > 0) {
+    const currentMsgs = toSafeArray(vc.messages_);
+    plan.messages.forEach((m: any) => {
+      if (!m || !m.name) return;
+      const mName = String(m.name).trim();
+      let matched = currentMsgs.find((cur: any) => getEntityName(cur) === mName);
+      if (!matched && typeof vc.addMessage === 'function') {
+        try {
+          vc.addMessage({ name: mName });
+        } catch (e) {
+          console.warn('[Entry-Hub] Huber 신호 생성 실패:', mName, e);
+        }
+        matched = toSafeArray(vc.messages_).find((cur: any) => getEntityName(cur) === mName);
+      }
+      if (matched) {
+        const actualId = getEntityId(matched);
+        if (actualId) {
+          messageNameMap[mName] = actualId;
+        }
+      }
+    });
+  }
+
+  // 4. 함수 생성
+  if (vc && Array.isArray(plan.functions) && plan.functions.length > 0) {
+    plan.functions.forEach((f: any) => {
+      if (!f || !f.name) return;
+      try {
+        const fId = generateEntryHash();
+        const fName = String(f.name).trim();
+        const clonedFunc = {
+          id: fId,
+          name: fName,
+          content: typeof f.content === 'string' ? f.content : JSON.stringify(f.content || []),
+          description: f.description || fName,
+          type: 'normal',
+        };
+        const newFunc = typeof Entry.Func === 'function' ? new Entry.Func(clonedFunc) : clonedFunc;
+        if (Array.isArray(vc.functions_)) {
+          vc.functions_.push(newFunc);
+        } else if (typeof vc.functions_ === 'object') {
+          vc.functions_[fId] = newFunc;
+        }
+        if (typeof newFunc?.generateBlock === 'function') {
+          newFunc.generateBlock();
+        }
+        Entry.Func?.updateMenu?.();
+      } catch (e) {
+        console.warn('[Entry-Hub] Huber 함수 생성 실패:', f.name, e);
+      }
+    });
+  }
+
+  // 치환 헬퍼 (스크립트 내부의 변수/리스트/신호 이름을 실제 엔트리 ID로 치환)
+  const remapPlanScript = (node: any): any => {
+    if (!node) return node;
+    if (Array.isArray(node)) return node.map(remapPlanScript);
+    if (typeof node !== 'object') return node;
+
+    const cloned = { ...node };
+
+    if (Array.isArray(cloned.params)) {
+      cloned.params = cloned.params.map((p: any) => {
+        if (typeof p === 'string') {
+          if (variableNameMap[p]) return variableNameMap[p];
+          if (listNameMap[p]) return listNameMap[p];
+          if (messageNameMap[p]) return messageNameMap[p];
+        }
+        return p && typeof p === 'object' ? remapPlanScript(p) : p;
+      });
+    }
+
+    if (Array.isArray(cloned.statements)) {
+      cloned.statements = cloned.statements.map(remapPlanScript);
+    }
+    if (cloned.next) {
+      cloned.next = remapPlanScript(cloned.next);
+    }
+
+    return cloned;
+  };
+
+  // 5. 오브젝트 작업 (신규 생성 또는 기존 오브젝트 코드 주입)
+  const objects = Array.isArray(plan.objects) ? plan.objects : [];
+  for (const objAction of objects) {
+    if (objAction.target === 'NEW') {
+      // 신규 오브젝트 생성
+      const newObjId = generateEntryHash();
+      const objName = objAction.name || '새 오브젝트';
+      const shapeType = objAction.shapeType || 'RECTANGLE';
+      const shapeColor = objAction.shapeColor || '#0070f3';
+
+      // 기본 모양 SVG 생성
+      const defaultPic = createShapePicture(shapeType, shapeColor, objName, objAction.shapeText);
+
+      // 사운드 매핑
+      const soundList: any[] = [];
+      if (Array.isArray(objAction.sounds)) {
+        objAction.sounds.forEach((s: any, idx: number) => {
+          const sName = s.name || `소리 ${idx + 1}`;
+          const bKey = s.builtinKey || 'jump';
+          soundList.push({
+            id: generateEntryHash(),
+            name: sName,
+            filename: bKey,
+            fileurl: `https://playentry.org/lib/entry-js/images/media/${bKey}.mp3`,
+            duration: 1,
+            ext: '.mp3',
+          });
+        });
+      }
+
+      const objModel = {
+        id: newObjId,
+        name: objName,
+        sprite: {
+          name: objName,
+          pictures: [defaultPic],
+          sounds: soundList,
+          category: {},
+        },
+        entity: {
+          x: objAction.initialPosition?.x ?? 0,
+          y: objAction.initialPosition?.y ?? 0,
+          rotation: 0,
+          direction: 90,
+          scaleX: 1,
+          scaleY: 1,
+          visible: true,
+        },
+      };
+
+      if (typeof Entry.container?.addObject === 'function') {
+        Entry.container.addObject(objModel);
+      }
+
+      // 생성된 오브젝트 선택
+      if (typeof Entry.container?.selectObject === 'function') {
+        Entry.container.selectObject(newObjId);
+      }
+
+      // 스크립트 치환 및 주입
+      const finalScript = remapPlanScript(objAction.script || []);
+      injectScriptDirectly(finalScript);
+    } else {
+      // 기존 오브젝트에 주입
+      const currentLive = Entry.playground?.object || Entry.container?.selectedObject;
+      if (Array.isArray(objAction.sounds) && currentLive) {
+        // 기존 오브젝트에 사운드 추가
+        const existingSounds = toSafeArray(currentLive.sounds_ || currentLive.sounds || []);
+        objAction.sounds.forEach((s: any) => {
+          const sName = s.name || '새 소리';
+          if (!existingSounds.some((ex: any) => (ex.name || ex.name_) === sName)) {
+            const bKey = s.builtinKey || 'jump';
+            const newSoundObj = {
+              id: generateEntryHash(),
+              name: sName,
+              filename: bKey,
+              fileurl: `https://playentry.org/lib/entry-js/images/media/${bKey}.mp3`,
+              duration: 1,
+              ext: '.mp3',
+            };
+            if (Array.isArray(currentLive.sounds_)) currentLive.sounds_.push(newSoundObj);
+            else if (Array.isArray(currentLive.sounds)) currentLive.sounds.push(newSoundObj);
+          }
+        });
+      }
+
+      const finalScript = remapPlanScript(objAction.script || []);
+      injectScriptDirectly(finalScript);
+    }
+  }
+
+  repairOrphanVariables();
+  refreshEntryEditorViews();
+}
+
+// 도형/텍스트 모양 SVG Picture 생성 헬퍼
+function createShapePicture(shapeType: string, color: string, name: string, shapeText?: string): any {
+  const pId = generateEntryHash();
+  let svgContent = '';
+
+  if (shapeType === 'CIRCLE') {
+    svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="${color}" stroke="#ffffff" stroke-width="3"/></svg>`;
+  } else if (shapeType === 'TEXT') {
+    const textToDraw = shapeText || name || '텍스트';
+    svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="140" height="60" viewBox="0 0 140 60"><text x="70" y="38" font-family="sans-serif" font-size="20" font-weight="bold" fill="${color}" text-anchor="middle">${textToDraw}</text></svg>`;
+  } else if (shapeType === 'ENTRYBOT') {
+    return {
+      id: pId,
+      name: name || '엔트리봇',
+      filename: 'entrybot1',
+      fileurl: 'https://playentry.org/lib/entry-js/images/media/entrybot1.svg',
+      imageType: 'svg',
+      dimension: { width: 100, height: 100 },
+    };
+  } else {
+    // RECTANGLE / 기본
+    svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect x="5" y="5" width="90" height="90" rx="12" fill="${color}" stroke="#ffffff" stroke-width="3"/></svg>`;
+  }
+
+  const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgContent)}`;
+
+  return {
+    id: pId,
+    name: name || '모양 1',
+    filename: `shape_${pId}`,
+    fileurl: dataUri,
+    imageURL: dataUri,
+    imageType: 'svg',
+    dimension: { width: 100, height: 100 },
+  };
+}
+
+// 스크립트 스레드를 현재 선택된 오브젝트에 직접 주입
+function injectScriptDirectly(script: any[]) {
+  const Entry = window.Entry;
+  if (!Entry) return;
+
+  const normalized = normalizeScriptKeyParams(script);
+  let threads: any[] = [];
+  if (Array.isArray(normalized)) {
+    if (normalized.length > 0 && Array.isArray(normalized[0])) {
+      threads = normalized;
+    } else {
+      threads = [normalized];
+    }
+  }
+
+  threads.forEach((threadBlocks: any[], tIdx: number) => {
+    if (!Array.isArray(threadBlocks) || threadBlocks.length === 0) return;
+    const startX = 60 + tIdx * 240;
+    const startY = 60;
+
+    const positioned = threadBlocks.map((b: any, bIdx: number) => {
+      const copy = regenerateBlockIds(JSON.parse(JSON.stringify(b)));
+      if (bIdx === 0) {
+        copy.x = copy.x !== undefined && copy.x !== null ? Number(copy.x) : startX;
+        copy.y = copy.y !== undefined && copy.y !== null ? Number(copy.y) : startY;
+      }
+      return copy;
+    });
+
+    try {
+      if (Entry.do && Entry.STATIC?.COMMAND_TYPES?.addThread) {
+        Entry.do('addThread', positioned);
+      } else if (Entry.playground?.mainWorkspace?.board?.code?.createThread) {
+        Entry.playground.mainWorkspace.board.code.createThread(positioned);
+      } else if (typeof Entry.dispatchEvent === 'function') {
+        Entry.dispatchEvent('addBackPackToEntry', 'block', positioned[0] || threadBlocks);
+      }
+    } catch (e) {
+      console.warn('[Entry-Hub] Huber 스레드 주입 fallback:', e);
+      try {
+        Entry.playground?.mainWorkspace?.board?.code?.createThread?.(positioned);
+      } catch (err) {
+        console.error('[Entry-Hub] Huber 스크립트 주입 실패:', err);
+      }
+    }
+  });
 }

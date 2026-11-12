@@ -84,4 +84,9 @@ export class WindowPostMessageEntryBridgeAdapter implements IEntryBridgeReposito
     const res = await this.sendRequest<{ success: boolean }>('INJECT_ASSET_REQ', { type, data });
     return !!res?.success;
   }
+
+  async executeActionPlan(actionPlan: any): Promise<boolean> {
+    const res = await this.sendRequest<{ success: boolean }>('EXECUTE_ACTION_PLAN_REQ', actionPlan);
+    return !!res?.success;
+  }
 }

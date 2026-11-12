@@ -45,18 +45,17 @@ export function AssetCard({
   const fallbackPic =
     rawData.selectedPicture ||
     rawData.pictures?.[0] ||
+    rawData.sprite?.selectedPicture ||
+    rawData.sprite?.pictures?.[0] ||
     rawData.objects?.[0]?.selectedPicture ||
-    rawData.objects?.[0]?.pictures?.[0];
+    rawData.objects?.[0]?.pictures?.[0] ||
+    rawData.objects?.[0]?.sprite?.selectedPicture ||
+    rawData.objects?.[0]?.sprite?.pictures?.[0];
 
-  const isGenericBot =
-    !previewImageUrl ||
-    previewImageUrl.includes('entrybot_walk') ||
-    previewImageUrl.includes('entrybot1');
-
+  // 오브젝트/장면 에셋은 실제 모양(fallbackPic)을 최우선으로 사용, 없을 시 previewImageUrl 폴백
   const resolvedImageUrl =
-    isGenericBot && fallbackPic
-      ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(previewImageUrl)
-      : formatAssetImageUrl(previewImageUrl) || formatAssetImageUrl(fallbackPic);
+    formatAssetImageUrl(fallbackPic) ||
+    formatAssetImageUrl(previewImageUrl);
 
   const [currentSrc, setCurrentSrc] = useState<string | undefined>(resolvedImageUrl);
 
@@ -66,9 +65,9 @@ export function AssetCard({
   }, [resolvedImageUrl]);
 
   const handleImageError = () => {
-    const fallbackUrl = formatAssetImageUrl(fallbackPic);
-    if (fallbackUrl && currentSrc !== fallbackUrl) {
-      setCurrentSrc(fallbackUrl);
+    const thumbFallback = formatAssetImageUrl(fallbackPic, { thumb: true });
+    if (thumbFallback && currentSrc !== thumbFallback) {
+      setCurrentSrc(thumbFallback);
     } else {
       setImgError(true);
     }

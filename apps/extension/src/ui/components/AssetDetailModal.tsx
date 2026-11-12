@@ -345,17 +345,16 @@ export function AssetDetailModal({
             const fallbackPic =
               rawData.selectedPicture ||
               rawData.pictures?.[0] ||
+              rawData.sprite?.selectedPicture ||
+              rawData.sprite?.pictures?.[0] ||
               rawData.objects?.[0]?.selectedPicture ||
-              rawData.objects?.[0]?.pictures?.[0];
-            const isGenericBot =
-              !asset.previewImageUrl ||
-              asset.previewImageUrl.includes('entrybot_walk') ||
-              asset.previewImageUrl.includes('entrybot1');
+              rawData.objects?.[0]?.pictures?.[0] ||
+              rawData.objects?.[0]?.sprite?.selectedPicture ||
+              rawData.objects?.[0]?.sprite?.pictures?.[0];
 
             const displayImg =
-              isGenericBot && fallbackPic
-                ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(asset.previewImageUrl)
-                : formatAssetImageUrl(asset.previewImageUrl) || formatAssetImageUrl(fallbackPic);
+              formatAssetImageUrl(fallbackPic) ||
+              formatAssetImageUrl(asset.previewImageUrl);
 
             return displayImg ? (
               <div style={{ height: '140px', borderRadius: '8px', overflow: 'hidden', backgroundColor: colors.canvasSoft2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

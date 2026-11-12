@@ -113,6 +113,30 @@ export default function AssetDetailPage() {
     }
   };
 
+  // 유저의 좋아요/북마크 상태 별도 조회 함수
+  const syncUserInteractions = async (uid: string, aId: string) => {
+    try {
+      const [likeRes, bookmarkRes] = await Promise.all([
+        supabase.from('likes').select('asset_id').eq('asset_id', aId).eq('user_id', uid).maybeSingle(),
+        supabase.from('bookmarks').select('asset_id').eq('asset_id', aId).eq('user_id', uid).maybeSingle(),
+      ]);
+
+      if (likeRes.error) {
+        console.warn('[Like Check Error]', likeRes.error);
+      } else {
+        setIsLiked(Boolean(likeRes.data));
+      }
+
+      if (bookmarkRes.error) {
+        console.warn('[Bookmark Check Error]', bookmarkRes.error);
+      } else {
+        setIsBookmarked(Boolean(bookmarkRes.data));
+      }
+    } catch (statusErr) {
+      console.warn('Like/Bookmark status fetch error:', statusErr);
+    }
+  };
+
   useEffect(() => {
     async function fetchAsset() {
       setLoading(true);
@@ -128,18 +152,8 @@ export default function AssetDetailPage() {
           setLikeCount(data.like_count || 0);
           setBookmarkCount(data.bookmark_count || 0);
 
-          // 현재 유저의 좋아요 및 북마크 여부 조회 (id 컬럼 대신 asset_id 조회)
           if (user?.id) {
-            try {
-              const [likeRes, bookmarkRes] = await Promise.all([
-                supabase.from('likes').select('asset_id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
-                supabase.from('bookmarks').select('asset_id').eq('asset_id', assetId).eq('user_id', user.id).maybeSingle(),
-              ]);
-              setIsLiked(Boolean(likeRes.data));
-              setIsBookmarked(Boolean(bookmarkRes.data));
-            } catch (statusErr) {
-              console.warn('Like/Bookmark status fetch error:', statusErr);
-            }
+            await syncUserInteractions(user.id, assetId);
           } else {
             setIsLiked(false);
             setIsBookmarked(false);
@@ -194,12 +208,18 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백 (upsert로 중복키 에러 원천 방지)
       if (nextState) {
-        const { error } = await supabase.from('likes').insert({ asset_id: assetId, user_id: user.id });
+        const { error } = await supabase
+          .from('likes')
+          .upsert(
+            { asset_id: assetId, user_id: user.id },
+            { onConflict: 'asset_id,user_id', ignoreDuplicates: true }
+          );
+
         if (error) {
-          // 이미 존재하는 키(중복)인 경우 상태를 true로 동기화하고 에러 무시
-          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('likes_pkey')) {
+          const errStr = `${error.code || ''} ${error.message || ''} ${error.details || ''}`;
+          if (errStr.includes('23505') || errStr.includes('duplicate key') || errStr.includes('likes_pkey')) {
             setIsLiked(true);
             const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', assetId).maybeSingle();
             if (updatedAsset && typeof updatedAsset.like_count === 'number') {
@@ -220,6 +240,15 @@ export default function AssetDetailPage() {
         setLikeCount(updatedAsset.like_count);
       }
     } catch (e: any) {
+      const errStr = `${e?.code || ''} ${e?.message || ''} ${e?.details || ''}`;
+      if (errStr.includes('23505') || errStr.includes('duplicate key') || errStr.includes('likes_pkey')) {
+        setIsLiked(true);
+        const { data: updatedAsset } = await supabase.from('assets').select('like_count').eq('id', assetId).maybeSingle();
+        if (updatedAsset && typeof updatedAsset.like_count === 'number') {
+          setLikeCount(updatedAsset.like_count);
+        }
+        return;
+      }
       console.warn('Like toggle sync error:', e);
       setIsLiked(prevLiked);
       setLikeCount(prevCount);
@@ -248,12 +277,18 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // 2. RPC 미배포 시 직접 테이블 토글 폴백
+      // 2. RPC 미배포 시 직접 테이블 토글 폴백 (upsert로 중복키 에러 원천 방지)
       if (nextState) {
-        const { error } = await supabase.from('bookmarks').insert({ asset_id: assetId, user_id: user.id });
+        const { error } = await supabase
+          .from('bookmarks')
+          .upsert(
+            { asset_id: assetId, user_id: user.id },
+            { onConflict: 'asset_id,user_id', ignoreDuplicates: true }
+          );
+
         if (error) {
-          // 이미 존재하는 키(중복)인 경우 상태를 true로 동기화하고 에러 무시
-          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('bookmarks_pkey')) {
+          const errStr = `${error.code || ''} ${error.message || ''} ${error.details || ''}`;
+          if (errStr.includes('23505') || errStr.includes('duplicate key') || errStr.includes('bookmarks_pkey')) {
             setIsBookmarked(true);
             const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', assetId).maybeSingle();
             if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
@@ -274,6 +309,15 @@ export default function AssetDetailPage() {
         setBookmarkCount(updatedAsset.bookmark_count);
       }
     } catch (e: any) {
+      const errStr = `${e?.code || ''} ${e?.message || ''} ${e?.details || ''}`;
+      if (errStr.includes('23505') || errStr.includes('duplicate key') || errStr.includes('bookmarks_pkey')) {
+        setIsBookmarked(true);
+        const { data: updatedAsset } = await supabase.from('assets').select('bookmark_count').eq('id', assetId).maybeSingle();
+        if (updatedAsset && typeof updatedAsset.bookmark_count === 'number') {
+          setBookmarkCount(updatedAsset.bookmark_count);
+        }
+        return;
+      }
       console.warn('Bookmark toggle sync error:', e);
       setIsBookmarked(prevBookmarked);
       setBookmarkCount(prevCount);
@@ -723,19 +767,17 @@ export default function AssetDetailPage() {
             const fallbackPic =
               rawData.selectedPicture ||
               rawData.pictures?.[0] ||
+              rawData.sprite?.selectedPicture ||
+              rawData.sprite?.pictures?.[0] ||
               rawData.objects?.[0]?.selectedPicture ||
-              rawData.objects?.[0]?.pictures?.[0];
+              rawData.objects?.[0]?.pictures?.[0] ||
+              rawData.objects?.[0]?.sprite?.selectedPicture ||
+              rawData.objects?.[0]?.sprite?.pictures?.[0];
 
-            // DB에 저장된 preview_image_url이 기본 엔트리봇(entrybot_walk1 등)이고 실제 고유 모양이 있는 경우 실제 모양 우선
-            const isGenericBot =
-              !asset.preview_image_url ||
-              asset.preview_image_url.includes('entrybot_walk') ||
-              asset.preview_image_url.includes('entrybot1');
-
+            // 오브젝트/장면 에셋은 본체의 실제 모양(fallbackPic)을 최우선으로 사용, 없을 시 preview_image_url 사용
             const heroUrl =
-              isGenericBot && fallbackPic
-                ? formatAssetImageUrl(fallbackPic) || formatAssetImageUrl(asset.preview_image_url)
-                : formatAssetImageUrl(asset.preview_image_url) || formatAssetImageUrl(fallbackPic);
+              formatAssetImageUrl(fallbackPic) ||
+              formatAssetImageUrl(asset.preview_image_url);
 
             if (!heroUrl) return null;
 

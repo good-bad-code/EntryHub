@@ -4,15 +4,22 @@
  */
 
 export type HuberModelId =
-  | 'gemini-3.8-flash'
+  | 'gemini-2.5-flash'
+  | 'gemini-2.5-pro'
   | 'gemini-2.0-flash'
-  | 'gemini-1.5-flash'
+  | 'gemini-2.0-flash-lite'
   | 'gemini-1.5-pro'
-  | 'gpt-4o-mini'
+  | 'gemini-1.5-flash'
   | 'gpt-4o'
+  | 'gpt-4o-mini'
+  | 'o3-mini'
+  | 'claude-5-5-sonnet'
+  | 'claude-3-7-sonnet'
   | 'claude-3-5-sonnet'
   | 'deepseek-chat'
-  | 'groq-llama-3.3';
+  | 'deepseek-reasoner'
+  | 'groq-llama-3.3'
+  | 'groq-llama-3.1';
 
 export type HuberProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'groq';
 
@@ -26,67 +33,116 @@ export interface HuberModelInfo {
 
 export const HUBER_MODELS: HuberModelInfo[] = [
   {
-    id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash (최신/권장)',
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash (최신/권장)',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '구글 최신 차세대 플래시 모델로 빠르고 정확한 블록 생성',
+    description: '구글 2.5세대 최신 초고속 플래시 모델로 빠르고 정확한 블록 생성',
+  },
+  {
+    id: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    provider: 'gemini',
+    providerName: 'Google Gemini',
+    description: '구글 2.5세대 최신 심층 추론 및 복잡한 알고리즘 설계',
   },
   {
     id: 'gemini-2.0-flash',
     name: 'Gemini 2.0 Flash',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '구글 초고속 멀티모달 플래시 모델',
+    description: '안정적인 2.0 세대 차세대 고속 플래시 모델',
   },
   {
-    id: 'gemini-1.5-flash',
-    name: 'Gemini 1.5 Flash',
+    id: 'gemini-2.0-flash-lite',
+    name: 'Gemini 2.0 Flash-Lite',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '안정적인 엔트리 블록 생성',
+    description: '초경량 초고속 저지연 플래시 모델',
   },
   {
     id: 'gemini-1.5-pro',
     name: 'Gemini 1.5 Pro',
     provider: 'gemini',
     providerName: 'Google Gemini',
-    description: '복잡한 알고리즘과 수학 연산에 강력한 추론력',
+    description: '복잡한 알고리즘과 수학 연산에 강력한 심층 추론',
+  },
+  {
+    id: 'gemini-1.5-flash',
+    name: 'Gemini 1.5 Flash',
+    provider: 'gemini',
+    providerName: 'Google Gemini',
+    description: '엔트리 블록 코드 생성',
+  },
+  {
+    id: 'gpt-4o',
+    name: 'GPT-4o (최신)',
+    provider: 'openai',
+    providerName: 'OpenAI',
+    description: '최고 수준의 종합 지능 및 블록 버그 분석 성능',
   },
   {
     id: 'gpt-4o-mini',
     name: 'GPT-4o Mini',
     provider: 'openai',
     providerName: 'OpenAI',
-    description: '가볍고 안정적인 JSON AST 블록 코드 생성',
+    description: '가볍고 안정적인 고속 블록 코드 생성',
   },
   {
-    id: 'gpt-4o',
-    name: 'GPT-4o',
+    id: 'o3-mini',
+    name: 'o3-mini (추론 특화)',
     provider: 'openai',
     providerName: 'OpenAI',
-    description: '최고 수준의 종합 코딩 및 버그 분석 성능',
+    description: '수학, 알고리즘, 복잡한 게임 로직 추론 최적화',
+  },
+  {
+    id: 'claude-5-5-sonnet',
+    name: 'Claude 5.5 Sonnet (최신/권장)',
+    provider: 'anthropic',
+    providerName: 'Anthropic',
+    description: 'Anthropic 최신 5.5세대 소넷 모델로 최고의 코드 완성도 제공',
+  },
+  {
+    id: 'claude-3-7-sonnet',
+    name: 'Claude 3.7 Sonnet',
+    provider: 'anthropic',
+    providerName: 'Anthropic',
+    description: '하이브리드 추론 및 세련된 블록 구조화',
   },
   {
     id: 'claude-3-5-sonnet',
     name: 'Claude 3.5 Sonnet',
     provider: 'anthropic',
     providerName: 'Anthropic',
-    description: '블록 트리 구조화 및 자연어 이해 최상급',
+    description: '정평이 난 섬세한 한국어 이해와 블록 트리 생성',
   },
   {
     id: 'deepseek-chat',
-    name: 'DeepSeek V3',
+    name: 'DeepSeek V3 (최신)',
     provider: 'deepseek',
     providerName: 'DeepSeek',
-    description: '뛰어난 가성비와 논리/수학적 코딩 추론',
+    description: '뛰어난 가성비와 강력한 코딩 논리 추론',
+  },
+  {
+    id: 'deepseek-reasoner',
+    name: 'DeepSeek R1 (추론 특화)',
+    provider: 'deepseek',
+    providerName: 'DeepSeek',
+    description: '단계별 심층 사고 기반의 복잡한 로직 설계',
   },
   {
     id: 'groq-llama-3.3',
     name: 'Llama 3.3 70B (Groq)',
     provider: 'groq',
     providerName: 'Groq',
-    description: '초고속 실시간 응답 블록 생성기',
+    description: '초고속 LPU 실시간 70B 대형 언어 모델',
+  },
+  {
+    id: 'groq-llama-3.1',
+    name: 'Llama 3.1 8B Instant (Groq)',
+    provider: 'groq',
+    providerName: 'Groq',
+    description: '무료 티어 호환 및 즉각적인 초고속 응답',
   },
 ];
 
@@ -108,7 +164,7 @@ const STORAGE_KEY = 'eh_huber_settings_v1';
 export function getHuberSettings(): HuberSettings {
   const defaults: HuberSettings = {
     enabled: true,
-    selectedModel: 'gemini-3.8-flash',
+    selectedModel: 'gemini-2.5-flash',
     tokenSavingMode: false,
     apiKeys: {},
   };
@@ -117,9 +173,14 @@ export function getHuberSettings(): HuberSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      let selectedModel = parsed.selectedModel;
+      if (!HUBER_MODELS.some((m) => m.id === selectedModel)) {
+        selectedModel = 'gemini-2.5-flash';
+      }
+
       return {
         enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
-        selectedModel: parsed.selectedModel || 'gemini-3.8-flash',
+        selectedModel,
         tokenSavingMode: typeof parsed.tokenSavingMode === 'boolean' ? parsed.tokenSavingMode : false,
         apiKeys: parsed.apiKeys || {},
       };
